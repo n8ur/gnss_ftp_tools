@@ -1,0 +1,12 @@
+[Unit]
+Description=Runs shell script daily to get GPS ftp files
+Wants=trimble_ftp.timer
+
+[Service]
+Type=oneshot
+User=jra
+ExecStart=/bin/bash /usr/local/bin/get_trimble_ftp.sh
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily download of RINEX files from GPS
+Requires=trimble_ftp.service
+
+[Timer]
+Unit=nrcan.service
+OnCalendar=*-*-* 02:30:00 UTC
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
