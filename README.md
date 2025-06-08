@@ -66,7 +66,7 @@ sudo tar xzf get_trimble_ftp-2025-06-07.tar.gz -C /
 
 This will:
 - Create */data* directory for GNSS data storage
-- Install program modules in */usr/local/lib/tec*
+- Install program modules in */usr/local/lib/trimble_ftp*
 - Copy the main program as well as runpkr00 and teqc to */usr/local/bin*
 - Install systemd service files in */etc/systemd/system*
 
