@@ -86,7 +86,7 @@ Required arguments:
 - *-m, --measurement_path*: Base directory for storing downloaded files
 - *-f, --fqdn*: Fully Qualified Domain Name or IP address of the GNSS
   receiver
-- *-s, --station*: Station name (used in filenames)
+- *-s, --station*: Station name (used in filenames and as RINEX marker name)
 
 Optional arguments:
 - *-y, --year*: Year to process (defaults to yesterday's year)
@@ -95,6 +95,9 @@ Optional arguments:
 - *--end_doy*: End day of year to process
 - *-a, --all_new*: Download all new RINEX files
 - *-t, --today*: Get today's file (may be partial)
+- *--organization*: Organization name for RINEX header (max 40 chars)
+- *--user*: User name for RINEX header (max 20 chars)
+- *--marker_num*: Marker number for RINEX header (max 20 chars)
 - *--sftp_host*: SFTP server hostname or IP
 - *--sftp_user*: SFTP username
 - *--sftp_pass*: SFTP password
@@ -104,15 +107,17 @@ Optional arguments:
 1. Download yesterday's data without sftp upload:
 get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1
 
-2. Download specific date:
-bash get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -y 2024 -d 123
+2. Download specific date with RINEX header information:
+bash get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -y 2024 -d 123 \
+    --organization "My Organization" --user "John Smith" --marker_num "12345"
 
 3. Download today's partial data:
 get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -t
 
 4. Download all new data and upload to SFTP server:
 get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -a \
---sftp_host sftp.example.com --sftp_user user --sftp_pass password
+    --organization "My Organization" --user "John Smith" --marker_num "12345" \
+    --sftp_host sftp.example.com --sftp_user user --sftp_pass password
 
 ## Directory Structure
 

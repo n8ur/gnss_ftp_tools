@@ -1,7 +1,7 @@
 #! /usr/bin/env -S python3 -u
 
 ############################################################
-# get_netrs.ftp.py v.20250606.1
+# get_netrs.ftp.py v.20250608.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Program to pull .T00 data files from a Trimble NetRS receiver, 
@@ -149,6 +149,15 @@ def options_get_netrs_ftp():
     parser.add_argument('-t','--today',
         action='store_true',required=False,default=0,
         help="Get today's file (may be partial)")
+    parser.add_argument('--organization',
+        type=str,required=False,default="-Unknown-",
+        help="Organization name (max 40 chars, defaults to '-Unknown-')")
+    parser.add_argument('--user',
+        type=str,required=False,default="-Unknown-",
+        help="User name (max 20 chars, defaults to '-Unknown-')")
+    parser.add_argument('--marker_num',
+        type=str,required=False,default="-Unknown-",
+        help="Marker number (max 20 chars, defaults to '-Unknown-')")
     # Add new arguments for SFTP upload
     parser.add_argument('--sftp_host',
         type=str,required=False,
@@ -164,7 +173,7 @@ def options_get_netrs_ftp():
     
     return args
 
-def convert_trimble(infile,outfile):
+def convert_trimble(infile, outfile, station, organization=None, user=None, marker_num=None):
     """Convert Trimble .T00 or .T02 file to RINEX format"""
     tmpfile = tempfile.NamedTemporaryFile(suffix='.tgd',delete=False)
     # convert .T00/.T02 file into intermediate .tgd file
@@ -179,9 +188,37 @@ def convert_trimble(infile,outfile):
     tmpfile.flush()
     tmpfile.seek(0)
    
+    # Process station name: uppercase and trim whitespace, truncate to 60 characters
+    marker_name = station.upper().strip()[:60]
+   
     # convert tgd to RINEX
     with open(outfile,'w') as f:
-        args = ['/usr/local/bin/teqc', '+C2', '-R', tmpfile.name]
+        # Build teqc command with options
+        args = [
+            '/usr/local/bin/teqc',
+            '+C2',
+            '-R',
+            '-O.mo', marker_name
+        ]
+        
+        # Add organization if provided
+        if organization:
+            org_name = organization.upper().strip()[:40]
+            args.extend(['-O.ag', org_name])
+            
+        # Add user if provided
+        if user:
+            user_name = user.upper().strip()[:20]
+            args.extend(['-O.o', user_name])
+            
+        # Add marker number if provided
+        if marker_num:
+            marker_number = marker_num.upper().strip()[:20]
+            args.extend(['-O.mn', marker_number])
+            
+        # Add input file
+        args.append(tmpfile.name)
+        
         try:
             subprocess.run(args, stdout = f, stderr = subprocess.DEVNULL)
         except Exception as e:
@@ -513,7 +550,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
                                     dt.datetime(year, month, day).timetuple().tm_yday)
                                 
                                 # Convert and save the file
-                                if convert_trimble(dnld_file.name, m.daily_dnld_path):
+                                if convert_trimble(dnld_file.name, m.daily_dnld_path, station, args.organization, args.user, args.marker_num):
                                     print(f"Downloaded {remote_file} and converted to RINEX")
                                     s = m.daily_dnld_path.split('/')
                                     s = s[len(s)-2] + '/' + s[len(s)-1]
@@ -687,7 +724,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
     # was there any data downloaded?
     tmpsize = os.path.getsize(dnld_file.name)
     if tmpsize > 0:
-        if convert_trimble(dnld_file.name, m.daily_dnld_path) == True:
+        if convert_trimble(dnld_file.name, m.daily_dnld_path, station, args.organization, args.user, args.marker_num) == True:
             print("Downloaded",full_filename,"and converted to RINEX")
         else:
             print("Downloaded",full_filename,"but couldn't convert to RINEX!")
