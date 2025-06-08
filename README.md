@@ -127,11 +127,11 @@ measurement path:
 The package includes systemd service files for automated operation. To
 set up daily downloads:
 
-1. Edit the run script to configure your receiver: ***bash sudo nano
-/usr/local/bin/trimble_ftp.sh ***
+1. Edit the run script to configure your receiver:
+sudo nano /usr/local/bin/trimble_ftp.sh
 
-2. Check the service status: ***bash sudo systemctl status trimble_ftp
-***
+2. Check the service status:
+sudo systemctl status trimble_ftp
 
 The service is configured to run daily at 0230 UTC to download the
 previous day's data.
