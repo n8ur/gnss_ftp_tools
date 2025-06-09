@@ -32,6 +32,7 @@ import zipfile
 import glob
 import re  # Add regex import
 import socket
+import gzip
 
 # This points to where the modules live
 MODULES_DIR = "/usr/local/lib/trimble_ftp"
@@ -40,6 +41,9 @@ if MODULES_DIR not in sys.path:
 
 from gnsscal import *
 from gnss_file_tools import *
+from ftp_funcs import download_trimble_file, download_all_new_files, identify_receiver_type, process_downloaded_file
+from sftp_funcs import get_host_key, upload_to_sftp
+from conversion_funcs import convert_trimble
 
 class TECMeasurementFiles(MeasurementFilesBase):
     """Class for TEC application with different directory structure"""
@@ -73,8 +77,9 @@ class TECMeasurementFiles(MeasurementFilesBase):
             self.daily_dnld_file = self.m_week_name + "_" + \
                 self.today_gps_dow_str + ".obs.partial"
         else:
-            self.daily_dnld_file = self.m_week_name + "_" + \
-                self.gps_dow_str + ".obs"
+            # New file naming format: <station><doy>0.yyo
+            self.daily_dnld_file = self.m_name.lower() + str(self.doy_num).zfill(3) + "0." + \
+                str(self.year_num)[-2:] + "o"
             
         self.daily_dnld_dir = self.dnld_base  # Changed to use base directory
         self.daily_dnld_path = self.daily_dnld_dir + self.daily_dnld_file
@@ -120,7 +125,7 @@ class TECMeasurementFiles(MeasurementFilesBase):
             self.weekly_rinex_dir + self.weekly_rinex_zip
 
 def options_get_netrs_ftp():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='Get Trimble NetRS FTP file')
 
     parser.add_argument('-m','--measurement_path',
         type=str,required=True,
@@ -158,6 +163,10 @@ def options_get_netrs_ftp():
     parser.add_argument('--marker_num',
         type=str,required=False,default="-Unknown-",
         help="Marker number (max 20 chars, defaults to '-Unknown-')")
+    # Add new argument for station location
+    parser.add_argument('--station_location',
+        type=str,required=False,
+        help="Receiver location in ECEF coordinates (X,Y,Z) as comma-separated values or [X,Y,Z]")
     # Add new arguments for SFTP upload
     parser.add_argument('--sftp_host',
         type=str,required=False,
@@ -173,171 +182,11 @@ def options_get_netrs_ftp():
     
     return args
 
-def convert_trimble(infile, outfile, station, organization=None, user=None, marker_num=None):
-    """Convert Trimble .T00 or .T02 file to RINEX format"""
-    tmpfile = tempfile.NamedTemporaryFile(suffix='.tgd',delete=False)
-    # convert .T00/.T02 file into intermediate .tgd file
-    args = ['/usr/local/bin/runpkr00', '-g', '-d', '-v',
-        infile, tmpfile.name]
-    try:
-        subprocess.run(args, \
-            stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-    except Exception as e:
-        print("Couldn't run runpkr00, error:",e)
-        return
-    tmpfile.flush()
-    tmpfile.seek(0)
-   
-    # Process station name: uppercase and trim whitespace, truncate to 60 characters
-    marker_name = station.upper().strip()[:60]
-   
-    # convert tgd to RINEX
-    with open(outfile,'w') as f:
-        # Build teqc command with options
-        args = [
-            '/usr/local/bin/teqc',
-            '+C2',
-            '-R',
-            '-O.mo', marker_name
-        ]
-        
-        # Add organization if provided
-        if organization:
-            org_name = organization.upper().strip()[:40]
-            args.extend(['-O.ag', org_name])
-            
-        # Add user if provided
-        if user:
-            user_name = user.upper().strip()[:20]
-            args.extend(['-O.o', user_name])
-            
-        # Add marker number if provided
-        if marker_num:
-            marker_number = marker_num.upper().strip()[:20]
-            args.extend(['-O.mn', marker_number])
-            
-        # Add input file
-        args.append(tmpfile.name)
-        
-        try:
-            subprocess.run(args, stdout = f, stderr = subprocess.DEVNULL)
-        except Exception as e:
-            print("Couldn't run teqc, error:",e)
-            return
-    s = outfile.split('/')
-    s = s[len(s)-2] + '/' + s[len(s)-1]
-    size = os.path.getsize(outfile)
-    tmpfile.close()
-    os.unlink(tmpfile.name)
-    return True
-
 ####################################################################
 # main function
 # fqdn = FQDN of rx hostname
 # station_ID = station name (used in filenames)
 # measurement_path is where files go
-
-def get_host_key(hostname):
-    """Get the host key for the given hostname, accepting it if not known"""
-    try:
-        # Try to get the host key from the system's known_hosts
-        host_keys = paramiko.util.load_host_keys(os.path.expanduser('~/.ssh/known_hosts'))
-        if hostname in host_keys:
-            return host_keys[hostname]
-        
-        # If not found, connect and get the key
-        transport = paramiko.Transport((hostname, 22))
-        transport.start_client()
-        key = transport.get_remote_server_key()
-        
-        # Save the key to known_hosts
-        host_keys[hostname] = key
-        host_keys.save(os.path.expanduser('~/.ssh/known_hosts'))
-        
-        return key
-    except Exception as e:
-        print(f"Error getting host key: {str(e)}")
-        return None
-
-def upload_to_sftp(measurement_path, sftp_host, sftp_user, sftp_pass):
-    """Upload all files from download directory to SFTP server"""
-    try:
-        # Test SFTP connection first
-        try:
-            ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(sftp_host, username=sftp_user, password=sftp_pass, timeout=30)
-            ssh.close()
-        except socket.gaierror:
-            print(f"Error: Could not resolve SFTP hostname '{sftp_host}'")
-            return
-        except socket.timeout:
-            print(f"Error: Connection to SFTP server '{sftp_host}' timed out")
-            return
-        except paramiko.AuthenticationException:
-            print(f"Error: Authentication failed for SFTP server '{sftp_host}'")
-            return
-        except paramiko.SSHException as e:
-            print(f"Error connecting to SFTP server '{sftp_host}': {e}")
-            return
-        except Exception as e:
-            print(f"Error connecting to SFTP server '{sftp_host}': {e}")
-            return
-        
-        # Create processed directory if it doesn't exist
-        processed_dir = os.path.join(measurement_path, "processed")
-        os.makedirs(processed_dir, exist_ok=True)
-        
-        # Get all files from download directory
-        download_dir = os.path.join(measurement_path, "download")
-        files = os.listdir(download_dir)
-        if not files:
-            print("No files found in download directory")
-            return
-            
-        print(f"Found {len(files)} files to upload")
-        
-        # Create SSH client with auto-accept of unknown hosts
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        try:
-            ssh.connect(sftp_host, username=sftp_user, password=sftp_pass)
-            sftp = ssh.open_sftp()
-        except Exception as e:
-            print(f"Error establishing SFTP connection: {e}")
-            return
-            
-        # Check uploads directory
-        uploads_dir = "uploads"
-        try:
-            sftp.stat(uploads_dir)
-        except Exception as e:
-            print(f"Error accessing uploads directory: {e}")
-            return
-        
-        # Upload each file
-        for file in files:
-            local_path = os.path.join(download_dir, file)
-            if os.path.isfile(local_path):
-                try:
-                    print(f"Uploading {file}...")
-                    remote_path = f"{uploads_dir}/{file}"
-                    sftp.put(local_path, remote_path)
-                    
-                    # Move file to processed directory
-                    os.rename(local_path, os.path.join(processed_dir, file))
-                    print(f"Uploaded and moved {file} to processed directory")
-                except Exception as e:
-                    print(f"Error processing {file}: {e}")
-                    continue
-        
-        sftp.close()
-        ssh.close()
-        print("SFTP upload completed")
-        
-    except Exception as e:
-        print(f"SFTP error: {e}")
 
 def check_disk_space(path, min_free_mb=512):
     """Check if there's enough free disk space, purge old files if needed"""
@@ -415,165 +264,8 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
         # Create initial MeasurementFiles object to get current date info
         m = TECMeasurementFiles(measurement_path, 0, 0)  # This will use yesterday's date
         
-        try:
-            # Test FTP connection first
-            try:
-                with FTP(fqdn, 'anonymous', timeout=30) as ftp:
-                    pass  # Just test the connection
-            except socket.gaierror:
-                print(f"Error: Could not resolve hostname '{fqdn}'")
-                return
-            except socket.timeout:
-                print(f"Error: Connection to '{fqdn}' timed out")
-                return
-            except ConnectionRefusedError:
-                print(f"Error: Connection to '{fqdn}' was refused (FTP service not running or port blocked)")
-                return
-            except ftp_errors as e:
-                print(f"Error connecting to FTP server '{fqdn}': {e}")
-                return
-            
-            # If we get here, FTP connection is good, proceed with download
-            with FTP(fqdn, 'anonymous') as ftp:
-                # First, get list of all directories
-                directories = []
-                try:
-                    # Try to list directories in root
-                    ftp.retrlines('LIST', lambda x: directories.append(x.split()[-1]))
-                except ftp_errors as e:
-                    print(f"Error listing root directory: {e}")
-                    return
-                
-                # Check if we have an Internal directory
-                has_internal = 'Internal' in directories
-                
-                # Get all date-formatted directories
-                date_dirs = []
-                
-                # First check root level
-                for d in directories:
-                    if len(d) == 6 and d.isdigit():
-                        date_dirs.append(('root', d))
-                
-                # Then check Internal directory if it exists
-                if has_internal:
-                    try:
-                        ftp.cwd('Internal')
-                        internal_dirs = []
-                        ftp.retrlines('LIST', lambda x: internal_dirs.append(x.split()[-1]))
-                        for d in internal_dirs:
-                            if len(d) == 6 and d.isdigit():
-                                date_dirs.append(('internal', d))
-                        ftp.cwd('/')  # Go back to root
-                    except ftp_errors as e:
-                        print(f"Error accessing Internal directory: {e}")
-                
-                if not date_dirs:
-                    print("No date-formatted directories found")
-                    return
-                
-                print(f"Found {len(date_dirs)} date directories")
-                
-                # Process each directory
-                for dir_type, date_dir in date_dirs:
-                    try:
-                        # Construct the full path based on directory type
-                        if dir_type == 'internal':
-                            full_path = f"Internal/{date_dir}"
-                        else:
-                            full_path = date_dir
-                            
-                        try:
-                            ftp.cwd(full_path)
-                            print(f"Processing directory: {full_path}")
-                        except ftp_errors as e:
-                            print(f"Couldn't access directory {full_path}: {e}")
-                            continue
-                        
-                        # Get list of files in current directory
-                        remote_files = []
-                        ftp.retrlines('LIST', lambda x: remote_files.append(x.split()[-1]))
-                        
-                        # Filter for .T00 and .T02 files
-                        trimble_files = [f for f in remote_files if f.endswith(('.T00', '.T02'))]
-                        
-                        if not trimble_files:
-                            print(f"No Trimble files found in {full_path}")
-                            continue
-                            
-                        print(f"Found {len(trimble_files)} Trimble files in {full_path}")
-                        
-                        # Process each file
-                        for remote_file in trimble_files:
-                            try:
-                                # Create tempfile with appropriate extension
-                                dnld_file = tempfile.NamedTemporaryFile(suffix=os.path.splitext(remote_file)[1], delete=False)
-                                
-                                # Download the file
-                                try:
-                                    response = ftp.retrbinary('RETR ' + remote_file, dnld_file.write, 1024)
-                                except ftp_errors as e:
-                                    print(f"Couldn't download {remote_file}: {e}")
-                                    os.remove(dnld_file.name)
-                                    continue
-                                
-                                # Check if download was successful
-                                if not response.startswith('226'):
-                                    print(f"Transfer error for {remote_file}. File may be incomplete.")
-                                    os.remove(dnld_file.name)
-                                    continue
-                                
-                                # Check file size
-                                tmpsize = os.path.getsize(dnld_file.name)
-                                if tmpsize == 0:
-                                    print(f"Downloaded file {remote_file} was empty")
-                                    os.remove(dnld_file.name)
-                                    continue
-                                
-                                # Create output filename based on the date from directory name
-                                year = int(date_dir[:4])
-                                month = int(date_dir[4:])
-                                
-                                # Use regex to find date pattern YYYYMMDDHHMM followed by a letter
-                                date_pattern = r'(\d{12})([a-zA-Z])\.(T00|T02)'
-                                match = re.search(date_pattern, remote_file)
-                                if match:
-                                    date_str = match.group(1)  # Get the YYYYMMDDHHMM part
-                                    day = int(date_str[6:8])  # Extract DD from YYYYMMDD
-                                else:
-                                    print(f"Could not find date pattern in filename {remote_file}")
-                                    os.remove(dnld_file.name)
-                                    continue
-                                
-                                # Create MeasurementFiles object for this date
-                                m = TECMeasurementFiles(measurement_path, year, 
-                                    dt.datetime(year, month, day).timetuple().tm_yday)
-                                
-                                # Convert and save the file
-                                if convert_trimble(dnld_file.name, m.daily_dnld_path, station, args.organization, args.user, args.marker_num):
-                                    print(f"Downloaded {remote_file} and converted to RINEX")
-                                    s = m.daily_dnld_path.split('/')
-                                    s = s[len(s)-2] + '/' + s[len(s)-1]
-                                    size = os.path.getsize(m.daily_dnld_path)
-                                    print("Saved as " + s + " (" + format_filesize(size) + ")")
-                                else:
-                                    print(f"Downloaded {remote_file} but couldn't convert to RINEX")
-                                
-                                os.remove(dnld_file.name)
-                                
-                            except Exception as e:
-                                print(f"Error processing {remote_file}: {e}")
-                                continue
-                        
-                        # Go back to root directory for next iteration
-                        ftp.cwd('/')
-                        
-                    except Exception as e:
-                        print(f"Error processing directory {date_dir}: {e}")
-                        continue
-        
-        except Exception as e:
-            print(f"FTP error: {e}")
+        # Use the new module to download all new files
+        if not download_all_new_files(fqdn, measurement_path, station, args):
             return
         
         # If SFTP parameters are provided, upload all downloaded files
@@ -621,117 +313,30 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
     else:
         base_filename = m.yyyy_str + m.mm_str + m.dd_str + "0000"
     
-    full_filename = None
-
-    try:
-        # Create tempfile with appropriate extension based on what we find
-        dnld_file = tempfile.NamedTemporaryFile(suffix='.T00',delete=False)
-    except:
-        print("Couldn't create tempfile.  Exiting!")
-        return
-
-    # now get the file
-    try:
-        with FTP(fqdn, 'anonymous') as ftp:
-            # Try NetRS directory structure first
-            try:
-                ftp.cwd(gps_dirname)
-                print(f"Using NetRS directory structure: {gps_dirname}")
-            except ftp_errors as e:
-                # If that fails, try NetR9 directory structure
-                try:
-                    ftp.cwd(internal_gps_dirname)
-                    print(f"Using NetR9 directory structure: {internal_gps_dirname}")
-                except ftp_errors as e:
-                    print("Couldn't change to either remote directory:")
-                    print(e)
-                    return
-
-            # get directory contents and find the file with the right base filename
-            try:
-                remote_files = []
-                # Get raw directory listing
-                raw_list = []
-                ftp.retrlines('LIST', raw_list.append)
-                
-                # Parse the listing to get just the filenames
-                for line in raw_list:
-                    # Split on whitespace and get the last element (filename)
-                    parts = line.split()
-                    if len(parts) >= 9:  # Standard FTP LIST format has at least 9 parts
-                        filename = parts[-1]
-                        remote_files.append(filename)
-                
-                for remote_file in remote_files:
-                    # Skip files that are still being written (end in .A) unless today flag is set
-                    if remote_file.endswith('.A') and not today:
-                        continue
-                        
-                    # Find the position of our date pattern in the filename
-                    date_pos = remote_file.find(base_filename)
-                    if date_pos >= 0:  # If we found the date pattern
-                        # Check if there's an 'a' or 'A' after the date pattern
-                        if (date_pos + len(base_filename) < len(remote_file) and
-                            remote_file[date_pos + len(base_filename)].lower() == 'a' and
-                            (remote_file.endswith('.T00') or remote_file.endswith('.T02') or 
-                             (today and (remote_file.endswith('.T00.A') or remote_file.endswith('.T02.A'))))):
-                            full_filename = remote_file
-                            # Update tempfile extension to match the found file
-                            dnld_file.close()
-                            os.unlink(dnld_file.name)
-                            dnld_file = tempfile.NamedTemporaryFile(suffix=os.path.splitext(remote_file)[1], delete=False)
-                            break
-            except ftp_errors as e:
-                print("Couldnt list files in remote directory:")
-                print(e)
-                return
-            if not full_filename:
-                print(f"Error: No .T00 or .T02 file found in '{gps_dirname}' or '{internal_gps_dirname}' containing date pattern '{base_filename}' and ending with 'a' or 'A'")
-                sys.exit()
-
-            # we're downloading in binary mode whether ascii or .T00 format
-            try:
-                response = ftp.retrbinary('RETR ' + full_filename, \
-                    dnld_file.write, 1024)
-            except ftp_errors as e:
-                print("Couldn't download:")
-                print(e)
-                return
-            # rewind tmpfile
-            dnld_file.seek(0)
-            # Check the response code
-            if response.startswith('226'):  # Transfer complete
-                print("Downloaded",full_filename)
-            else:
-                print("Transfer error. File may be incomplete or corrupt.")
-
-    except socket.gaierror:
-        print(f"Error: Could not resolve hostname '{fqdn}'")
-        return
-    except socket.timeout:
-        print(f"Error: Connection to '{fqdn}' timed out")
-        return
-    except ConnectionRefusedError:
-        print(f"Error: Connection to '{fqdn}' was refused (FTP service not running or port blocked)")
-        return
-    except ftp_errors as e:
-        print(f"Error connecting to FTP server '{fqdn}': {e}")
-        return
-    except Exception as e:
-        print(f"Unexpected error connecting to '{fqdn}': {e}")
+    # Use the new module to download the file
+    dnld_file, full_filename = download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today)
+    
+    if not dnld_file or not full_filename:
         return
 
     # was there any data downloaded?
     tmpsize = os.path.getsize(dnld_file.name)
     if tmpsize > 0:
-        if convert_trimble(dnld_file.name, m.daily_dnld_path, station, args.organization, args.user, args.marker_num) == True:
+        # Get the receiver type
+        with FTP(fqdn, 'anonymous') as ftp:
+            receiver_type = identify_receiver_type(ftp)
+            
+        if process_downloaded_file(dnld_file, receiver_type, m.daily_dnld_path, station, args):
             print("Downloaded",full_filename,"and converted to RINEX")
+            s = m.daily_dnld_path.split('/')
+            s = s[len(s)-2] + '/' + s[len(s)-1]
+            if os.path.exists(m.daily_dnld_path):
+                size = os.path.getsize(m.daily_dnld_path)
+                print("Saved as " + s + " (" + format_filesize(size) + ")")
+            else:
+                print("Warning: Expected output file not found at", m.daily_dnld_path)
         else:
             print("Downloaded",full_filename,"but couldn't convert to RINEX!")
-        s = m.daily_dnld_path.split('/')
-        s = s[len(s)-2] + '/' + s[len(s)-1]
-        size = os.path.getsize(m.daily_dnld_path)
-        print("Saved as " + s + " (" + format_filesize(size) + ")")
     else:
         os.remove(dnld_file.name)
         print("Downloaded file was empty.  Exiting:")
