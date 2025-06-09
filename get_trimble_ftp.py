@@ -35,7 +35,7 @@ import socket
 import gzip
 
 # This points to where the modules live
-MODULES_DIR = "/usr/local/lib/trimble_ftp"
+MODULES_DIR = "/usr/local/lib/gnss_ftp"
 if MODULES_DIR not in sys.path:
     sys.path.insert(0, MODULES_DIR)
 
@@ -314,7 +314,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
         base_filename = m.yyyy_str + m.mm_str + m.dd_str + "0000"
     
     # Use the new module to download the file
-    dnld_file, full_filename = download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today)
+    dnld_file, full_filename = download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today, m)
     
     if not dnld_file or not full_filename:
         return

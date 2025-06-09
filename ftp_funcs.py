@@ -107,7 +107,7 @@ def identify_receiver_type(ftp):
         print(f"Error identifying receiver type: {e}")
         return ReceiverType.UNKNOWN
 
-def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today=False):
+def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today=False, m=None):
     """Download a file from the Trimble FTP server"""
     with FTP(fqdn, 'anonymous') as ftp:
         # First identify the receiver type
@@ -118,18 +118,172 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
         # Create a temporary file with the appropriate extension
         if receiver_type == ReceiverType.NETR9:
             temp_ext = '.RINEX.2.11.zip'
+        elif receiver_type == ReceiverType.MOSAIC:
+            # Get the year suffix dynamically from the TECMeasurementFile if available
+            if m:
+                # Extract the 2-digit year from the full year
+                year_short = str(m.year_num)[-2:]
+                temp_ext = f'.{year_short}o'
+            else:
+                temp_ext = '.o'  # Generic observation file extension if no year info
         else:  # NetRS
             temp_ext = '.T00'
             
         dnld_file = tempfile.NamedTemporaryFile(suffix=temp_ext, delete=False)
         
         try:
-            # Try NetR9 directory structure first
-            if receiver_type == ReceiverType.NETR9:
+            # Try Mosaic directory structure first (if that's what we have)
+            if receiver_type == ReceiverType.MOSAIC:
+                try:
+                    # For Mosaic, we need to find YYdoy directories
+                    # Get the year and doy from the TECMeasurementFile
+                    if m:
+                        year_short = str(m.year_num)[-2:]  # 2-digit year from TECMeasurementFile
+                        doy_str = str(m.doy_num).zfill(3)  # 3-digit DOY from TECMeasurementFile
+                        yydoy = f"{year_short}{doy_str}"
+                    else:
+                        # Fallback to extracting from base_filename if m is not available
+                        year_short = base_filename[2:4]
+                    
+                    # Get list of root directories
+                    root_dirs = []
+                    try:
+                        ftp.cwd('/')
+                        dir_contents = []
+                        ftp.retrlines('LIST', lambda x: dir_contents.append(x))
+                        
+                        # Extract just the directory names
+                        for line in dir_contents:
+                            parts = line.split()
+                            if len(parts) >= 9 and parts[0].startswith('d'):  # Only directories
+                                dirname = ' '.join(parts[8:])
+                                root_dirs.append(dirname)
+                    except Exception as e:
+                        print(f"Error listing root directory: {str(e)}")
+                        
+                    # Function to recursively search for YYdoy directories
+                    def find_yydoy_dir(current_path, year_short, max_depth=3, current_depth=0):
+                        if current_depth >= max_depth:
+                            return None
+                            
+                        try:
+                            ftp.cwd(current_path)
+                            
+                            # List contents
+                            dir_contents = []
+                            ftp.retrlines('LIST', lambda x: dir_contents.append(x))
+                            
+                            # Extract directories
+                            dirs = []
+                            for line in dir_contents:
+                                parts = line.split()
+                                if len(parts) >= 9 and parts[0].startswith('d'):  # Only directories
+                                    dirname = ' '.join(parts[8:])
+                                    dirs.append(dirname)
+                                    
+                            # Check if any directory matches YYdoy pattern
+                            for dirname in dirs:
+                                if len(dirname) == 5 and dirname.startswith(year_short) and dirname[2:].isdigit():
+                                    # This looks like a YYdoy directory
+                                    return f"{current_path}/{dirname}"
+                                    
+                            # Recursively check subdirectories
+                            for dirname in dirs:
+                                result = find_yydoy_dir(f"{current_path}/{dirname}", year_short, 
+                                                       max_depth, current_depth + 1)
+                                if result:
+                                    return result
+                                    
+                            return None
+                        except Exception as e:
+                            print(f"Error checking directory {current_path}: {str(e)}")
+                            return None
+                            
+                    # Search for YYdoy directory starting from each root directory
+                    yydoy_path = None
+                    for root_dir in root_dirs:
+                        path = find_yydoy_dir(f"/{root_dir}", year_short)
+                        if path:
+                            yydoy_path = path
+                            break
+                            
+                    if not yydoy_path:
+                        print(f"Could not find YYdoy directory for {year_short}")
+                        return None, None
+                        
+                    # Now we have the path to the YYdoy directory
+                    # Look for RINEX observation files (ending with 'o')
+                    try:
+                        ftp.cwd(yydoy_path)
+                        
+                        dir_contents = []
+                        ftp.retrlines('LIST', lambda x: dir_contents.append(x))
+                        
+                        # Extract filenames
+                        file_list = []
+                        for line in dir_contents:
+                            parts = line.split()
+                            if len(parts) >= 9:  # Standard Unix-like listing format
+                                filename = ' '.join(parts[8:])  # Filename is everything after the date/time
+                                file_list.append(filename)
+                                
+                        # Look for RINEX observation files which end with year+o (e.g., 25o, 24o)
+                        # We'll check for both current year patterns and also common RINEX observation patterns
+                        obs_patterns = []
+                        if m:
+                            # If we have m, use the year from it
+                            year_short = str(m.year_num)[-2:]
+                            obs_patterns.append(f".{year_short}o")  # .25o
+                            obs_patterns.append(f".{year_short}O")  # .25O
+                        
+                        # Always include generic pattern as fallback
+                        obs_patterns.append("o")                 # Generic ending with 'o'
+                        
+                        remote_files = []
+                        for pattern in obs_patterns:
+                            pattern_files = [f for f in file_list if f.lower().endswith(pattern.lower())]
+                            remote_files.extend(pattern_files)
+                            
+                        # Remove duplicates
+                        remote_files = list(set(remote_files))
+                        
+                        if remote_files:
+                            remote_file = remote_files[0]
+                            print(f"Downloading {remote_file}...")
+                            ftp.retrbinary(f'RETR {remote_file}', dnld_file.write)
+                            dnld_file.flush()
+                            size = os.path.getsize(dnld_file.name)
+                            print(f"Downloaded {remote_file} ({format_filesize(size)})")
+                            return dnld_file, remote_file
+                        else:
+                            print(f"No RINEX observation files found in {yydoy_path}")
+                    except Exception as e:
+                        print(f"Error accessing YYdoy directory {yydoy_path}: {str(e)}")
+                except Exception as e:
+                    print(f"Error traversing Mosaic directory structure: {str(e)}")
+                    
+                print("Could not find file in Mosaic directory structure")
+                return None, None
+            # Try NetR9 directory structure
+            elif receiver_type == ReceiverType.NETR9:
                 try:
                     ftp.cwd(internal_gps_dirname)
-                    # Look for RINEX zip files
-                    remote_files = [f for f in ftp.nlst() if f.endswith('.RINEX.2.11.zip')]
+                    
+                    # Extract just the filenames from the directory listing
+                    dir_contents = []
+                    ftp.retrlines('LIST', lambda x: dir_contents.append(x))
+                    
+                    file_list = []
+                    for line in dir_contents:
+                        # Parse the line to extract just the filename at the end
+                        parts = line.split()
+                        if len(parts) >= 9:  # Standard Unix-like listing format
+                            filename = ' '.join(parts[8:])  # Filename is everything after the date/time
+                            file_list.append(filename)
+                    
+                    # Filter for RINEX.2.11.zip files
+                    remote_files = [f for f in file_list if f.endswith('.RINEX.2.11.zip')]
+                    
                     if remote_files:
                         remote_file = remote_files[0]
                         print(f"Downloading {remote_file} (converting on-the-fly)...")
@@ -138,14 +292,60 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                         size = os.path.getsize(dnld_file.name)
                         print(f"Downloaded {remote_file} ({format_filesize(size)})")
                         return dnld_file, remote_file
-                except:
-                    print("Could not find file in NetR9 directory structure")
-                    return None, None
+                except Exception as e:
+                    print(f"Error accessing NetR9 directory {internal_gps_dirname}: {str(e)}")
+                    
+                # Try looking in root level directory as well
+                try:
+                    ftp.cwd('/')
+                    
+                    # Extract just the filenames from the directory listing
+                    dir_contents = []
+                    ftp.retrlines('LIST', lambda x: dir_contents.append(x))
+                    
+                    file_list = []
+                    for line in dir_contents:
+                        # Parse the line to extract just the filename at the end
+                        parts = line.split()
+                        if len(parts) >= 9:  # Standard Unix-like listing format
+                            filename = ' '.join(parts[8:])  # Filename is everything after the date/time
+                            file_list.append(filename)
+                    
+                    # Filter for RINEX.2.11.zip files
+                    remote_files = [f for f in file_list if f.endswith('.RINEX.2.11.zip')]
+                    
+                    if remote_files:
+                        remote_file = remote_files[0]
+                        print(f"Downloading {remote_file} (converting on-the-fly)...")
+                        ftp.retrbinary(f'RETR {remote_file}', dnld_file.write)
+                        dnld_file.flush()
+                        size = os.path.getsize(dnld_file.name)
+                        print(f"Downloaded {remote_file} ({format_filesize(size)})")
+                        return dnld_file, remote_file
+                except Exception as e:
+                    print(f"Error accessing root directory: {str(e)}")
+                    
+                print("Could not find file in NetR9 directory structure")
+                return None, None
             else:  # NetRS
                 try:
                     ftp.cwd(gps_dirname)
-                    # Look for T00 files
-                    remote_files = [f for f in ftp.nlst() if f.endswith('.T00')]
+                    
+                    # Extract just the filenames from the directory listing
+                    dir_contents = []
+                    ftp.retrlines('LIST', lambda x: dir_contents.append(x))
+                    
+                    file_list = []
+                    for line in dir_contents:
+                        # Parse the line to extract just the filename at the end
+                        parts = line.split()
+                        if len(parts) >= 9:  # Standard Unix-like listing format
+                            filename = ' '.join(parts[8:])  # Filename is everything after the date/time
+                            file_list.append(filename)
+                    
+                    # Filter for T00 files
+                    remote_files = [f for f in file_list if f.endswith('.T00')]
+                    
                     if remote_files:
                         remote_file = remote_files[0]
                         print(f"Downloading {remote_file}...")
@@ -154,9 +354,11 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                         size = os.path.getsize(dnld_file.name)
                         print(f"Downloaded {remote_file} ({format_filesize(size)})")
                         return dnld_file, remote_file
-                except:
-                    print("Could not find file in NetRS directory structure")
-                    return None, None
+                except Exception as e:
+                    print(f"Error accessing NetRS directory {gps_dirname}: {str(e)}")
+                    
+                print("Could not find file in NetRS directory structure")
+                return None, None
                     
         except Exception as e:
             print(f"Error downloading file: {str(e)}")
@@ -368,6 +570,28 @@ def process_downloaded_file(downloaded_file, receiver_type, output_path, station
                 return False
             except Exception as e:
                 print(f"Error extracting zip: {str(e)}")
+                return False
+        
+        elif receiver_type == ReceiverType.MOSAIC:
+            # For Mosaic, files are already in RINEX format, just copy the file
+            try:
+                # Create output directory if it doesn't exist
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                
+                # Copy the file to the output location
+                shutil.copy2(downloaded_file.name, output_path)
+                
+                # Verify the file was copied
+                if os.path.exists(output_path):
+                    size = os.path.getsize(output_path)
+                    print(f"Copied Mosaic RINEX observation file to {output_path} ({format_filesize(size)})")
+                    return True
+                else:
+                    print("Failed to copy Mosaic RINEX observation file")
+                    return False
+                    
+            except Exception as e:
+                print(f"Error processing Mosaic file: {str(e)}")
                 return False
                 
         else:
