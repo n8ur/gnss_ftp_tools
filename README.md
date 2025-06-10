@@ -1,15 +1,14 @@
 # Trimble NetRS GNSS Data Downloader
 
 This program automates the process of downloading GNSS data from Trimble
-NetRS/NetR8/NetR9 receivers, converting it to RINEX format, and
-optionally uploading it to a central server via SFTP.
+NetRS/NetR8/NetR9 and Septentrio Mosaic receivers, converting it to 
+RINEX format, and optionally uploading it to a central server via SFTP.
 
 ## Features
 
 - Downloads GNSS data files (.T00/.T02) from Trimble NetRS/NetR8/NetR9
-  receivers
+  receivers and RINEX files directly from Sepentrio Mosaic receivers
 - Converts Trimble format to RINEX format
-- Supports both NetRS and NetR9 directory structures
 - Can download historical data or today's partial data
 - Optional SFTP upload to central server
 - Automatic disk space management
@@ -20,6 +19,7 @@ optionally uploading it to a central server via SFTP.
 - Python 3.x
 - Required Debian packages:
   - python3-paramiko (for SFTP functionality)
+  To run on Raspberry Pi (ARM):
   - qemu-user-static (for running Intel binaries on ARM)
   - binfmt-support (for binary format support)
 
@@ -45,10 +45,8 @@ of it working with emulation (see next paragraph).
 
 Both these programs are for Intel architecture but will run on a 
 Raspberry Pi ARM system using the qemu emulator.  Install qemu and 
-binfmt support:
-sudo apt-get install qemu-user binfmt-support
-After that, the programs should run from the command line without
-further fuss.
+binfmt support as shown below.  After that, the programs should 
+run from the command line without further fuss.
 
 - Access to the GNSS receiver's FTP server
 - (Optional) SFTP server credentials for central data upload
@@ -76,7 +74,7 @@ This will:
 
 bash get_netrs_ftp.py -m /data/<my_station> \
     -f my.host.name -s MyStation \
-    --sftp_host tec-logger.febo.com \
+    --sftp_host files.tapr.org \
     --sftp_user MyUser \
     --sftp_pass MyPasswd
 
@@ -84,8 +82,7 @@ bash get_netrs_ftp.py -m /data/<my_station> \
 
 Required arguments:
 - *-m, --measurement_path*: Base directory for storing downloaded files
-- *-f, --fqdn*: Fully Qualified Domain Name or IP address of the GNSS
-  receiver
+- *-f, --fqdn*: Receiver's Fully Qualified Domain Name or IP address
 - *-s, --station*: Station name (used in filenames and as RINEX marker name)
 
 Optional arguments:
@@ -108,15 +105,18 @@ Optional arguments:
 get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1
 
 2. Download specific date with RINEX header information:
-bash get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -y 2024 -d 123 \
-    --organization "My Organization" --user "John Smith" --marker_num "12345"
+bash get_netrs_ftp -m /data/gnss -f gnss1.example.com \
+    -s STN1 -y 2024 -d 123 \
+    --organization "HamSci TEC Project" \
+    --user "John Smith" --marker_num "12345"
 
 3. Download today's partial data:
 get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -t
 
 4. Download all new data and upload to SFTP server:
 get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -a \
-    --organization "My Organization" --user "John Smith" --marker_num "12345" \
+    --organization "My Organization" \
+    --user "John Smith" --marker_num "12345" \
     --sftp_host sftp.example.com --sftp_user user --sftp_pass password
 
 ## Directory Structure
@@ -133,10 +133,11 @@ The package includes systemd service files for automated operation. To
 set up daily downloads:
 
 1. Edit the run script to configure your receiver:
-sudo nano /usr/local/bin/trimble_ftp.sh
+sudo nano /usr/local/bin/gnss_ftp.sh
 
-2. Check the service status:
-sudo systemctl status trimble_ftp
+2. Enable the systemd timer that will run the program daily:
+sudo systemctl daemon-reload
+sudo systemctl enable --now gnss_ftp.timer
 
 The service is configured to run daily at 0230 UTC to download the
 previous day's data.
