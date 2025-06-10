@@ -1,4 +1,4 @@
-# Trimble NetRS GNSS Data Downloader
+# GNSS Data Downloader
 
 This program automates the process of downloading GNSS data from Trimble
 NetRS/NetR8/NetR9 and Septentrio Mosaic receivers, converting it to 
