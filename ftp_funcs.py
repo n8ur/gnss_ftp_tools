@@ -162,7 +162,7 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                         print(f"Error listing root directory: {str(e)}")
                         
                     # Function to recursively search for YYdoy directories
-                    def find_yydoy_dir(current_path, year_short, max_depth=3, current_depth=0):
+                    def find_yydoy_dir(current_path, target_yydoy, max_depth=3, current_depth=0):
                         if current_depth >= max_depth:
                             return None
                             
@@ -183,13 +183,14 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                                     
                             # Check if any directory matches YYdoy pattern
                             for dirname in dirs:
-                                if len(dirname) == 5 and dirname.startswith(year_short) and dirname[2:].isdigit():
+                                if len(dirname) == 5 and dirname.startswith(target_yydoy[:2]) and dirname[2:].isdigit():
                                     # This looks like a YYdoy directory
-                                    return f"{current_path}/{dirname}"
+                                    if dirname == target_yydoy:
+                                        return f"{current_path}/{dirname}"
                                     
                             # Recursively check subdirectories
                             for dirname in dirs:
-                                result = find_yydoy_dir(f"{current_path}/{dirname}", year_short, 
+                                result = find_yydoy_dir(f"{current_path}/{dirname}", target_yydoy, 
                                                        max_depth, current_depth + 1)
                                 if result:
                                     return result
@@ -202,13 +203,13 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                     # Search for YYdoy directory starting from each root directory
                     yydoy_path = None
                     for root_dir in root_dirs:
-                        path = find_yydoy_dir(f"/{root_dir}", year_short)
+                        path = find_yydoy_dir(f"/{root_dir}", yydoy)
                         if path:
                             yydoy_path = path
                             break
                             
                     if not yydoy_path:
-                        print(f"Could not find YYdoy directory for {year_short}")
+                        print(f"Could not find YYdoy directory for {yydoy}")
                         return None, None
                         
                     # Now we have the path to the YYdoy directory
@@ -284,6 +285,15 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                     # Filter for RINEX.2.11.zip files
                     remote_files = [f for f in file_list if f.endswith('.RINEX.2.11.zip')]
                     
+                    # Filter files by date if we have m
+                    if m and remote_files:
+                        # Extract date from base_filename (YYYYMMDD)
+                        target_date = base_filename[:8]
+                        # Try to find a file with the correct date in its name
+                        matching_files = [f for f in remote_files if target_date in f]
+                        if matching_files:
+                            remote_files = matching_files
+                    
                     if remote_files:
                         remote_file = remote_files[0]
                         print(f"Downloading {remote_file} (converting on-the-fly)...")
@@ -313,6 +323,15 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                     
                     # Filter for RINEX.2.11.zip files
                     remote_files = [f for f in file_list if f.endswith('.RINEX.2.11.zip')]
+                    
+                    # Filter files by date if we have m
+                    if m and remote_files:
+                        # Extract date from base_filename (YYYYMMDD)
+                        target_date = base_filename[:8]
+                        # Try to find a file with the correct date in its name
+                        matching_files = [f for f in remote_files if target_date in f]
+                        if matching_files:
+                            remote_files = matching_files
                     
                     if remote_files:
                         remote_file = remote_files[0]
@@ -345,6 +364,15 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                     
                     # Filter for T00 files
                     remote_files = [f for f in file_list if f.endswith('.T00')]
+                    
+                    # Filter files by date if we have m
+                    if m and remote_files:
+                        # Extract date from base_filename (YYYYMMDD)
+                        target_date = base_filename[:8]
+                        # Try to find a file with the correct date in its name
+                        matching_files = [f for f in remote_files if target_date in f]
+                        if matching_files:
+                            remote_files = matching_files
                     
                     if remote_files:
                         remote_file = remote_files[0]

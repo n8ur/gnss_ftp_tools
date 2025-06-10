@@ -1,9 +1,9 @@
 [Unit]
 Description=Daily download of RINEX files from GPS
-Requires=trimble_ftp.service
+Requires=gnss_ftp.service
 
 [Timer]
-Unit=nrcan.service
+Unit=gnss_ftp.service
 OnCalendar=*-*-* 02:30:00 UTC
 AccuracySec=1s
 Persistent=true

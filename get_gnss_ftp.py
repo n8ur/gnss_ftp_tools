@@ -47,10 +47,14 @@ from conversion_funcs import convert_trimble
 
 class TECMeasurementFiles(MeasurementFilesBase):
     """Class for TEC application with different directory structure"""
-    def __init__(self, m_path, date_1=0, date_2=0, today=False):
+    def __init__(self, m_path, date_1=0, date_2=0, today=False, station_name=None):
         # First calculate all paths without creating directories
         super().__init__(m_path, date_1, date_2)
         self.today = today
+        # Override m_name with the provided station name
+        if station_name:
+            self.m_name = station_name
+        # Recalculate paths with the new station name
         self.calc_path_names()
         # Then explicitly create only TEC-specific directories
         self.create_tec_dirs()
@@ -77,8 +81,8 @@ class TECMeasurementFiles(MeasurementFilesBase):
             self.daily_dnld_file = self.m_week_name + "_" + \
                 self.today_gps_dow_str + ".obs.partial"
         else:
-            # New file naming format: <station><doy>0.yyo
-            self.daily_dnld_file = self.m_name.lower() + str(self.doy_num).zfill(3) + "0." + \
+            # New file naming format: <station>_<doy>0.yyo
+            self.daily_dnld_file = self.m_name.lower() + "_" + str(self.doy_num).zfill(3) + "0." + \
                 str(self.year_num)[-2:] + "o"
             
         self.daily_dnld_dir = self.dnld_base  # Changed to use base directory
@@ -262,7 +266,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
     if all_new:
         print("Downloading all new RINEX files")
         # Create initial MeasurementFiles object to get current date info
-        m = TECMeasurementFiles(measurement_path, 0, 0)  # This will use yesterday's date
+        m = TECMeasurementFiles(measurement_path, 0, 0, station_name=station)  # This will use yesterday's date
         
         # Use the new module to download all new files
         if not download_all_new_files(fqdn, measurement_path, station, args):
@@ -285,7 +289,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
     
     # Regular single file download code continues here...
     # Create TECMeasurementFiles object with the provided year and doy
-    m = TECMeasurementFiles(measurement_path, year, doy, today)
+    m = TECMeasurementFiles(measurement_path, year, doy, today, station)
 
     print("Year, day of year, GPS week, GPS day of week:", \
         m.year_num, m.doy_num, m.gps_week_str, m.gps_dow_str)
