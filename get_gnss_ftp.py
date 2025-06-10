@@ -1,12 +1,12 @@
 #! /usr/bin/env -S python3 -u
 
 ############################################################
-# get_netrs.ftp.py v.20250608.1
+# get_gnss_ftp.py v.20250610.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
-# Program to pull .T00 data files from a Trimble NetRS receiver, 
-# convert them to RINEX format, and then push them to a central
-# server.
+# Program to pull data files from Trimble or Sepentrio receiver, 
+# convert them to RINEX format if necessary, and then push them to 
+# a central server.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
