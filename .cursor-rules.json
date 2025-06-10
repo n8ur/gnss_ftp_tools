@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "prompt": "Strictly limit your changes to the minimum necessary to fulfill the user's request. Do not perform unrelated refactoring, style changes, or code 'improvements' unless explicitly instructed."
+    },
+    {
+      "prompt": "For any significant or complex change (e.g., refactoring logic, modifying multiple functions/files, or adding more than ~20 lines of code), you must first outline your proposed plan. Describe which files you will modify and the high-level logic of the changes. Wait for my approval before writing and applying the code."
+    },
+    {
+      "prompt": "Before proposing a significant change, remind me to ensure my current work is saved and committed to version control (like Git). You do not have the ability to create file backups yourself, so this reminder is your primary safety protocol."
+    },
+    {
+      "prompt": "CRITICAL DIRECTIVE: The 'TECMeasurementFile' class is the single source of truth for all filename and path construction. You are strictly forbidden from manually generating or manipulating file paths, directory names, or performing date calculations for naming purposes. You MUST use the existing methods and properties of an instantiated 'TECMeasurementFile' object for these tasks. Furthermore, you are forbidden from modifying the 'TECMeasurementFile' class itself. If a request seems to require breaking these rules, you must stop, state that the request conflicts with the 'TECMeasurementFile' directive, and ask for explicit permission to proceed."
+    }
+  ]
+}
