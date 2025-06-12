@@ -51,53 +51,88 @@ def identify_receiver_type(ftp):
             directories = []
             ftp.retrlines('LIST', lambda x: directories.append(x.split()[-1]))
             
-            # Check for External/Internal structure
-            if 'External' in directories and 'Internal' in directories:
-                # Check both Internal and External directories
-                for storage_dir in ['Internal', 'External']:
-                    try:
-                        ftp.cwd(storage_dir)
-                        # Get list of date-formatted directories (YYYYMM)
-                        date_dirs = []
-                        ftp.retrlines('LIST', lambda x: date_dirs.append(x.split()[-1]))
-                        
-                        # Find the first valid date directory
-                        for date_dir in date_dirs:
-                            if len(date_dir) == 6 and date_dir.isdigit():
+            # First check Internal directory if it exists
+            if 'Internal' in directories:
+                try:
+                    ftp.cwd('Internal')
+                    # Get list of date-formatted directories (YYYYMM)
+                    date_dirs = []
+                    ftp.retrlines('LIST', lambda x: date_dirs.append(x.split()[-1]))
+                    
+                    # Find the first valid date directory
+                    for date_dir in date_dirs:
+                        if len(date_dir) == 6 and date_dir.isdigit():
+                            try:
+                                ftp.cwd(date_dir)
+                                files = []
+                                ftp.retrlines('LIST', lambda x: files.append(x))
+                                
+                                # Check for .T01 or .T02 extensions first (NETR8)
+                                has_t01_t02 = any('.T01' in line or '.T02' in line for line in files)
+                                if has_t01_t02:
+                                    print(f"Identified receiver type: {ReceiverType.NETR8.value}")
+                                    return ReceiverType.NETR8
+                                
+                                # Check for asterisk sizes which indicate NetR9
+                                has_asterisk_sizes = any('*' in line for line in files)
+                                if has_asterisk_sizes:
+                                    print(f"Identified receiver type: {ReceiverType.NETR9.value}")
+                                    return ReceiverType.NETR9
+                                    
+                            except ftp_errors:
+                                pass
+                            finally:
                                 try:
-                                    ftp.cwd(date_dir)
-                                    files = []
-                                    ftp.retrlines('LIST', lambda x: files.append(x))
-                                    
-                                    # Check for asterisk sizes which indicate NetR9
-                                    has_asterisk_sizes = any('*' in line for line in files)
-                                    
-                                    # Check for .T01 or .T02 extensions
-                                    has_t01_t02 = any('.T01' in line or '.T02' in line for line in files)
-                                    
-                                    if has_asterisk_sizes:
-                                        print(f"Identified receiver type: {ReceiverType.NETR9.value}")
-                                        return ReceiverType.NETR9
-                                    elif has_t01_t02:
-                                        print(f"Identified receiver type: {ReceiverType.NETR8.value}")
-                                        return ReceiverType.NETR8
-                                        
+                                    ftp.cwd('..')
                                 except ftp_errors:
                                     pass
-                                finally:
-                                    try:
-                                        ftp.cwd('..')
-                                    except ftp_errors:
-                                        pass
-                                    
+                                
+                except ftp_errors:
+                    pass
+                finally:
+                    try:
+                        ftp.cwd('/')
                     except ftp_errors:
                         pass
-                    finally:
-                        try:
-                            ftp.cwd('/')
-                        except ftp_errors:
-                            pass
-                        
+            
+            # If we didn't find anything in Internal, check External directory
+            if 'External' in directories:
+                try:
+                    ftp.cwd('External')
+                    # Get list of date-formatted directories (YYYYMM)
+                    date_dirs = []
+                    ftp.retrlines('LIST', lambda x: date_dirs.append(x.split()[-1]))
+                    
+                    # Find the first valid date directory
+                    for date_dir in date_dirs:
+                        if len(date_dir) == 6 and date_dir.isdigit():
+                            try:
+                                ftp.cwd(date_dir)
+                                files = []
+                                ftp.retrlines('LIST', lambda x: files.append(x))
+                                
+                                # Check for asterisk sizes which indicate NetR9
+                                has_asterisk_sizes = any('*' in line for line in files)
+                                if has_asterisk_sizes:
+                                    print(f"Identified receiver type: {ReceiverType.NETR9.value}")
+                                    return ReceiverType.NETR9
+                                    
+                            except ftp_errors:
+                                pass
+                            finally:
+                                try:
+                                    ftp.cwd('..')
+                                except ftp_errors:
+                                    pass
+                                
+                except ftp_errors:
+                    pass
+                finally:
+                    try:
+                        ftp.cwd('/')
+                    except ftp_errors:
+                        pass
+                    
         except ftp_errors:
             pass
             
@@ -346,6 +381,86 @@ def download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename
                     
                 print("Could not find file in NetR9 directory structure")
                 return None, None
+            elif receiver_type == ReceiverType.NETR8:
+                try:
+                    ftp.cwd(internal_gps_dirname)
+                    
+                    # Extract just the filenames from the directory listing
+                    dir_contents = []
+                    ftp.retrlines('LIST', lambda x: dir_contents.append(x))
+                    
+                    file_list = []
+                    for line in dir_contents:
+                        # Parse the line to extract just the filename at the end
+                        parts = line.split()
+                        if len(parts) >= 9:  # Standard Unix-like listing format
+                            filename = ' '.join(parts[8:])  # Filename is everything after the date/time
+                            file_list.append(filename)
+                    
+                    # Filter for .T01 and .T02 files
+                    remote_files = [f for f in file_list if f.endswith(('.T01', '.T02'))]
+                    
+                    # Filter files by date if we have m
+                    if m and remote_files:
+                        # Extract date from base_filename (YYYYMMDD)
+                        target_date = base_filename[:8]
+                        # Try to find a file with the correct date in its name
+                        matching_files = [f for f in remote_files if target_date in f]
+                        if matching_files:
+                            remote_files = matching_files
+                    
+                    if remote_files:
+                        remote_file = remote_files[0]
+                        print(f"Downloading {remote_file}...")
+                        ftp.retrbinary(f'RETR {remote_file}', dnld_file.write)
+                        dnld_file.flush()
+                        size = os.path.getsize(dnld_file.name)
+                        print(f"Downloaded {remote_file} ({format_filesize(size)})")
+                        return dnld_file, remote_file
+                except Exception as e:
+                    print(f"Error accessing NetR8 directory {internal_gps_dirname}: {str(e)}")
+                    
+                # Try looking in root level directory as well
+                try:
+                    ftp.cwd('/')
+                    
+                    # Extract just the filenames from the directory listing
+                    dir_contents = []
+                    ftp.retrlines('LIST', lambda x: dir_contents.append(x))
+                    
+                    file_list = []
+                    for line in dir_contents:
+                        # Parse the line to extract just the filename at the end
+                        parts = line.split()
+                        if len(parts) >= 9:  # Standard Unix-like listing format
+                            filename = ' '.join(parts[8:])  # Filename is everything after the date/time
+                            file_list.append(filename)
+                    
+                    # Filter for .T01 and .T02 files
+                    remote_files = [f for f in file_list if f.endswith(('.T01', '.T02'))]
+                    
+                    # Filter files by date if we have m
+                    if m and remote_files:
+                        # Extract date from base_filename (YYYYMMDD)
+                        target_date = base_filename[:8]
+                        # Try to find a file with the correct date in its name
+                        matching_files = [f for f in remote_files if target_date in f]
+                        if matching_files:
+                            remote_files = matching_files
+                    
+                    if remote_files:
+                        remote_file = remote_files[0]
+                        print(f"Downloading {remote_file}...")
+                        ftp.retrbinary(f'RETR {remote_file}', dnld_file.write)
+                        dnld_file.flush()
+                        size = os.path.getsize(dnld_file.name)
+                        print(f"Downloaded {remote_file} ({format_filesize(size)})")
+                        return dnld_file, remote_file
+                except Exception as e:
+                    print(f"Error accessing root directory: {str(e)}")
+                    
+                print("Could not find file in NetR8 directory structure")
+                return None, None
             else:  # NetRS
                 try:
                     ftp.cwd(gps_dirname)
@@ -552,8 +667,8 @@ def process_downloaded_file(downloaded_file, receiver_type, output_path, station
     print(f"Processing downloaded file: {downloaded_file.name} for receiver type {receiver_type.value}")
     
     try:
-        if receiver_type == ReceiverType.NETRS:
-            # For NetRS, use convert_trimble
+        if receiver_type in [ReceiverType.NETRS, ReceiverType.NETR8]:
+            # For NetRS and NetR8, use convert_trimble
             if convert_trimble(downloaded_file.name, output_path, station, args.organization, args.user, args.marker_num, args.station_location):
                 return True
             return False
