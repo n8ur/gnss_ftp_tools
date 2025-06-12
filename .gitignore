@@ -2,6 +2,8 @@ install/
 *.orig
 *.new
 *.old
+*.gz
+*.zip
 
 # ----------------------------------------------------------- #
 #                     General/OS Specific                     #

@@ -11,7 +11,7 @@ INSTALL_DIR="install"
 # The desired name for the final archive file.
 # Using the current date in the filename is a good practice.
 DATE=$(date "+%Y-%m-%d")
-ARCHIVE_NAME="get_trimble_ftp-${DATE}.tar.gz"
+ARCHIVE_NAME="get_gnss_ftp-${DATE}.tar.gz"
 
 # --- Script Logic ---
 

@@ -16,10 +16,13 @@ RINEX format, and optionally uploading it to a central server via SFTP.
 
 ## Prerequisites
 
+- Access to the GNSS receiver's FTP server
+- SFTP server credentials for central data upload
+
 - Python 3.x
 - Required Debian packages:
   - python3-paramiko (for SFTP functionality)
-  To run on Raspberry Pi (ARM):
+- To run on Raspberry Pi (ARM):
   - qemu-user-static (for running Intel binaries on ARM)
   - binfmt-support (for binary format support)
 
@@ -28,28 +31,10 @@ RINEX format, and optionally uploading it to a central server via SFTP.
   - teqc (for RINEX conversion) 
 NOTE:  These two programs are (so far as I can tell) free to use 
 but not open source because they rely on proprietary information from 
-GNSS manufacturers.
-
-*runpakr00* is a very old Trimble program that has not been updated in
-many years.  The executable versions you might find on-line likely will
-not run on modern Linux systems.  I tracked down a legitimate copy of
-the core library file in object form and was able to build a 
-statically-linked i32-bit executable using that.  It seems to run
-on current Linux systems.
-
-*teqc* was developed by UNAVCO and reached end-of-life a few years ago.
-Executables for various platforms are available for download at
-https://www.unavco.org/software/data-processing/teqc/teqc.html.
-The version provided here is statically linked to improve the chances
-of it working with emulation (see next paragraph).
-
-Both these programs are for Intel architecture but will run on a 
-Raspberry Pi ARM system using the qemu emulator.  Install qemu and 
-binfmt support as shown below.  After that, the programs should 
-run from the command line without further fuss.
-
-- Access to the GNSS receiver's FTP server
-- (Optional) SFTP server credentials for central data upload
+GNSS manufacturers.  Both are for Intel architecture but will run 
+on a Raspberry Pi ARM system using the qemu emulator.  On the
+Raspberry Pi, install qemu and binfmt support as shown below.  After 
+that, the programs should run from the command line without further fuss.
 
 ## Installation
 
@@ -70,9 +55,7 @@ This will:
 
 ## Usage
 
-### Basic Usage
-
-bash get_netrs_ftp.py -m /data/<my_station> \
+get_netrs_ftp.py -m /data/<my_station> \
     -f my.host.name -s MyStation \
     --sftp_host files.tapr.org \
     --sftp_user MyUser \
@@ -102,27 +85,28 @@ Optional arguments:
 ### Examples
 
 1. Download yesterday's data without sftp upload:
-get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1
+get_netrs_ftp -m /data -f gnss1.example.com -s STN1
 
 2. Download specific date with RINEX header information:
-bash get_netrs_ftp -m /data/gnss -f gnss1.example.com \
+bash get_netrs_ftp -m /data -f gnss1.example.com \
     -s STN1 -y 2024 -d 123 \
     --organization "HamSci TEC Project" \
     --user "John Smith" --marker_num "12345"
 
 3. Download today's partial data:
-get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -t
+get_netrs_ftp -m /data -f gnss1.example.com -s STN1 -t
+(Note: this may not work on some receiver types.)
 
 4. Download all new data and upload to SFTP server:
-get_netrs_ftp -m /data/gnss -f gnss1.example.com -s STN1 -a \
+get_netrs_ftp -m /data -f gnss1.example.com -s STN1 -a \
     --organization "My Organization" \
     --user "John Smith" --marker_num "12345" \
     --sftp_host sftp.example.com --sftp_user user --sftp_pass password
 
 ## Directory Structure
 
-The program creates the following directory structure under the
-measurement path:
+The program creates the following directory structure the
+measurement path (by default, */data*):
 - *download/*: Raw downloaded files
 - *processed/*: Processed and converted files
 - *weekly/*: Weekly RINEX files (NOT YET IMPLEMENTED)
