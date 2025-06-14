@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+# NOTE -- this is backwards compatible with Python 3.5 as it
+# does not use f vars the way the original version did.
+
 import os
 import sys
 import shutil
@@ -31,25 +34,36 @@ UPLOADS_DIR = "uploads"
 
 
 def get_doy_from_filename(filename):
-    """Extract day of year from filename patterns like YYYYMMDD, YYYYDDD, or stationDDD0.YYo"""
+    """
+    Extract day of year from filename patterns like YYYYMMDD, YYYYDDD,
+    or stationDDD0.YYo, including compressed files.
+    """
     try:
-        # Try stationDDD0.YYo pattern (e.g., n8ur1590.25o) first
-        match = re.search(r"[a-zA-Z0-9]+(\d{3})0\.(\d{2})o", filename)
+        # MODIFIED: This regex is now more flexible.
+        # 1. It allows for hyphens and underscores in the station name.
+        # 2. It looks for the pattern anywhere in the filename, ignoring
+        #    final extensions like .gz or .Z.
+        match = re.search(r"[a-zA-Z0-9_-]+(\d{3})0\.(\d{2})o", filename)
         if match:
             doy = int(match.group(1))
-            year = 2000 + int(match.group(2))  # Convert YY to YYYY
+            year_yy = int(match.group(2))
+            # Handle century for 2-digit years. Assumes files from 1980-2079.
+            year = 2000 + year_yy if year_yy < 80 else 1900 + year_yy
             return year, doy
 
-        # Try YYYYMMDD pattern
-        if len(filename) >= 8:
-            date_str = filename[:8]
+        # MODIFIED: Use regex for YYYYMMDD to find it anywhere in the name.
+        # This pattern is checked before YYYYDDD to avoid ambiguity.
+        match = re.search(r"(\d{4})(\d{2})(\d{2})", filename)
+        if match:
+            date_str = "".join(match.groups())
             date = datetime.datetime.strptime(date_str, "%Y%m%d")
             return date.year, date.timetuple().tm_yday
 
-        # Try YYYYDDD pattern
-        if len(filename) >= 7:
-            year = int(filename[:4])
-            doy = int(filename[4:7])
+        # MODIFIED: Use regex for YYYYDDD to find it anywhere in the name.
+        match = re.search(r"(\d{4})(\d{3})", filename)
+        if match:
+            year = int(match.group(1))
+            doy = int(match.group(2))
             return year, doy
 
     except (ValueError, IndexError):
@@ -65,13 +79,16 @@ def create_directory_structure(year, doy):
         os.makedirs(target_dir, exist_ok=True)
         return target_dir
     except Exception as e:
-        logging.error(f"Failed to create directory {target_dir}: {e}")
+        logging.error(
+            "Failed to create directory {}: {}".format(target_dir, e)
+        )
         return None
 
 
 def move_file_safely(src_path, dest_dir, filename):
     """Safely move a file using a temporary file as intermediate step"""
     temp_file = None
+    temp_path = None  # Initialize to prevent NameError in except block
     try:
         # Create temporary file in the destination directory
         temp_file = tempfile.NamedTemporaryFile(
@@ -97,13 +114,13 @@ def move_file_safely(src_path, dest_dir, filename):
         # Remove the original file only after successful move
         os.remove(src_path)
 
-        logging.info(f"Moved {filename} to {dest_dir}")
+        logging.info("Moved {} to {}".format(filename, dest_dir))
         return True
 
     except Exception as e:
-        logging.error(f"Error moving {filename}: {e}")
+        logging.error("Error moving {}: {}".format(filename, e))
         # Clean up temporary file if it exists
-        if temp_file and os.path.exists(temp_path):
+        if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
             except:
@@ -125,13 +142,13 @@ def process_user_directory(user_dir):
     try:
         files = os.listdir(uploads_path)
     except Exception as e:
-        logging.error(f"Error reading directory {uploads_path}: {e}")
+        logging.error("Error reading directory {}: {}".format(uploads_path, e))
         return
 
     if not files:
         return
 
-    logging.info(f"Found files in {uploads_path}")
+    logging.info("Found files in {}".format(uploads_path))
 
     for filename in files:
         src_path = os.path.join(uploads_path, filename)
@@ -141,7 +158,9 @@ def process_user_directory(user_dir):
         year, doy = get_doy_from_filename(filename)
         if not year or not doy:
             logging.warning(
-                f"Could not determine year/doy from filename: {filename}"
+                "Could not determine year/doy from filename: {}".format(
+                    filename
+                )
             )
             continue
 
@@ -157,9 +176,6 @@ def main():
     start_time = time.time()
     logging.info("Starting RINEX file sweep")
 
-    # The script will automatically create the destination directory if needed
-    # but it's good practice to ensure its parent exists and has correct perms.
-
     try:
         user_dirs = [
             d
@@ -167,7 +183,7 @@ def main():
             if os.path.isdir(os.path.join(SFTP_USERS_BASE_DIR, d))
         ]
     except Exception as e:
-        logging.error(f"Error reading SFTP users directory: {e}")
+        logging.error("Error reading SFTP users directory: {}".format(e))
         sys.exit(1)
 
     for user in user_dirs:
@@ -175,7 +191,9 @@ def main():
         process_user_directory(user_dir)
 
     elapsed_time = time.time() - start_time
-    logging.info(f"RINEX file sweep completed in {elapsed_time:.2f} seconds")
+    logging.info(
+        "RINEX file sweep completed in {:.2f} seconds".format(elapsed_time)
+    )
 
 
 if __name__ == "__main__":
