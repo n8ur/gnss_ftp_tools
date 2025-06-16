@@ -69,11 +69,6 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
                             date_str = date_str[:20]
                         date_str = date_str.ljust(20)
                         
-                        # Show before/after once
-                        print(f"Fixing malformed PGM/RUN BY/DATE line:")
-                        print(f"Before: {line.strip()}")
-                        print(f"After:  {pgm}{run_by}{date_str}PGM / RUN BY / DATE")
-                        
                         # Replace the line with properly formatted version
                         lines[i] = f'{pgm}{run_by}{date_str}PGM / RUN BY / DATE\n'
                     break
