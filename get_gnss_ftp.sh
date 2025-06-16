@@ -1,11 +1,10 @@
 #!/bin/bash
 
 /usr/local/bin/get_gnss_ftp.py \
-    -m /data/n8ur -f netrs-1-admin.febo.com -s n8ur-netrs-1 \
-    --sftp_host files.tapr.org --sftp_user #### --sftp_pass ####
-/usr/local/bin/get_gnss_ftp.py \
-    -m /data/n8ur -f netr9-1-admin.febo.com -s n8ur-netr9-1 \
-    --sftp_host files.tapr.org --sftp_user n8ur-sftp --sftp_pass ####
-/usr/local/bin/get_gnss_ftp.py \
-    -m /data/n8ur -f mosaic-t1-admin.febo.com -s n8ur-mosaic-t1 \
-    --sftp_host files.tapr.org --sftp_user n8ur-sftp --sftp_pass ####
+    -m ./ -f netr9-1-admin.febo.com \
+    --station n8ur-netr9-1 \
+    --organization "HamSci TEC Project" \
+    --user "John Ackermann N8UR" \
+    --antenna_type "TRM41249.00" \
+    --station_llh "39.7285210 -84.1782042 247.686" \
+    --sftp_host files.tapr.org --sftp_user xxxx --sftp_pass ####

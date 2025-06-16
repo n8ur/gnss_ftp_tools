@@ -1,5 +1,7 @@
 {
   "rules": [
+    { "prompt:" "When asked to review code, *do not* make any changes unless instructed to do so."
+    },
     {
       "prompt": "Strictly limit your changes to the minimum necessary to fulfill the user's request. Do not perform unrelated refactoring, style changes, or code 'improvements' unless explicitly instructed."
     },

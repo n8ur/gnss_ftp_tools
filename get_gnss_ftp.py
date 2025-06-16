@@ -41,9 +41,9 @@ if MODULES_DIR not in sys.path:
 
 from gnsscal import *
 from gnss_file_tools import *
-from ftp_funcs import download_trimble_file, download_all_new_files, identify_receiver_type, process_downloaded_file
+from ftp_funcs import download_gnss_file, download_all_new_files, identify_receiver_type, process_downloaded_file
 from sftp_funcs import get_host_key, upload_to_sftp
-from conversion_funcs import convert_trimble
+from conversion_funcs import convert_netrs
 
 class TECMeasurementFiles(MeasurementFilesBase):
     """Class for TEC application with different directory structure"""
@@ -138,8 +138,8 @@ def options_get_netrs_ftp():
         type=str,required=True,
         help="FQDN of receiver")
     parser.add_argument('-s','--station',
-        type=str,required=True,
-        help="Receiver station name")
+        help='Station name (required)',
+        required=True)
     parser.add_argument('-y','--year',
         type=int,required=False,default=0,
         help="Year to process (defaults to yesterday's year if not specified)")
@@ -159,18 +159,23 @@ def options_get_netrs_ftp():
         action='store_true',required=False,default=0,
         help="Get today's file (may be partial)")
     parser.add_argument('--organization',
-        type=str,required=False,default="-Unknown-",
-        help="Organization name (max 40 chars, defaults to '-Unknown-')")
+        help='Organization/agency name (required)',
+        required=True)
     parser.add_argument('--user',
-        type=str,required=False,default="-Unknown-",
-        help="User name (max 20 chars, defaults to '-Unknown-')")
+        help='Operator/user name (required)',
+        required=True)
     parser.add_argument('--marker_num',
-        type=str,required=False,default="-Unknown-",
-        help="Marker number (max 20 chars, defaults to '-Unknown-')")
-    # Add new argument for station location
-    parser.add_argument('--station_location',
-        type=str,required=False,
-        help="Receiver location in ECEF coordinates (X,Y,Z) as comma-separated values or [X,Y,Z]")
+        help='Monument/marker number (optional)')
+    parser.add_argument('--antenna_number',
+        help='Antenna number (optional)')
+    parser.add_argument('--antenna_type',
+        help='Antenna type (required)',
+        required=True)
+    station_location = parser.add_mutually_exclusive_group(required=True)
+    station_location.add_argument('--station_cartesian',
+        help='Station location in WGS84 cartesian coordinates (X Y Z in meters, space-separated)')
+    station_location.add_argument('--station_llh',
+        help='Station location in WGS84 llh coordinates (latitude longitude height in decimal degrees and meters, space-separated)')
     # Add new arguments for SFTP upload
     parser.add_argument('--sftp_host',
         type=str,required=False,
@@ -269,7 +274,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
         m = TECMeasurementFiles(measurement_path, 0, 0, station_name=station)  # This will use yesterday's date
         
         # Use the new module to download all new files
-        if not download_all_new_files(fqdn, measurement_path, station, args):
+        if not download_all_new_files(fqdn, measurement_path, station, args, TECMeasurementFiles):
             return
         
         # If SFTP parameters are provided, upload all downloaded files
@@ -318,7 +323,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
         base_filename = m.yyyy_str + m.mm_str + m.dd_str + "0000"
     
     # Use the new module to download the file
-    dnld_file, full_filename = download_trimble_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today, m)
+    dnld_file, full_filename = download_gnss_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today, m)
     
     if not dnld_file or not full_filename:
         return
@@ -330,7 +335,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
         with FTP(fqdn, 'anonymous') as ftp:
             receiver_type = identify_receiver_type(ftp)
             
-        if process_downloaded_file(dnld_file, receiver_type, m.daily_dnld_path, station, args):
+        if process_downloaded_file(dnld_file, receiver_type, station, args, m):
             print("Downloaded",full_filename,"and converted to RINEX")
             s = m.daily_dnld_path.split('/')
             s = s[len(s)-2] + '/' + s[len(s)-1]
