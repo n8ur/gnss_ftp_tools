@@ -1,5 +1,6 @@
 ftp_test.sh
 install/
+download/
 *.orig
 *.new
 *.old
