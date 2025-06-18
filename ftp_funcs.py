@@ -11,9 +11,11 @@ import re
 from enum import Enum
 import zipfile
 import shutil
+import logging
 from gnss_file_tools import format_filesize
 from conversion_funcs import convert_netrs, edit_rinex_header
 
+logger = logging.getLogger(__name__)
 
 class FTPConnection:
     def __init__(self, fqdn, timeout=30):
@@ -26,16 +28,16 @@ class FTPConnection:
             self.ftp = FTP(self.fqdn, "anonymous", timeout=self.timeout)
             return self.ftp
         except socket.gaierror as e:
-            print(f"Error: Could not resolve hostname '{self.fqdn}': {e}")
+            logger.error(f"Could not resolve hostname '{self.fqdn}': {e}")
             raise
         except socket.timeout as e:
-            print(f"Error: Connection to '{self.fqdn}' timed out: {e}")
+            logger.error(f"Connection to '{self.fqdn}' timed out: {e}")
             raise
         except ConnectionRefusedError as e:
-            print(f"Error: Connection to '{self.fqdn}' was refused (FTP service not running or port blocked): {e}")
+            logger.error(f"Connection to '{self.fqdn}' was refused (FTP service not running or port blocked): {e}")
             raise
         except ftp_errors as e:
-            print(f"Error: FTP connection failed: {e}")
+            logger.error(f"FTP connection failed: {e}")
             raise
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -64,7 +66,7 @@ def with_ftp_connection(fqdn, operation, timeout=30):
     except (socket.gaierror, socket.timeout, ConnectionRefusedError, ftp_errors) as e:
         return None
     except Exception as e:
-        print(f"Error: Unexpected error during FTP operation: {e}")
+        logger.error(f"Unexpected error during FTP operation: {e}")
         return None
 
 
@@ -91,7 +93,7 @@ def parse_directory_listing(ftp, path):
                 dirs.append(dirname)
         return dirs
     except Exception as e:
-        print(f"Error listing directory {path}: {e}")
+        logger.error(f"Error listing directory {path}: {e}")
         return []
 
 
@@ -150,7 +152,7 @@ def extract_date_from_filename(filename, receiver_type):
                     doy = date.timetuple().tm_yday
                     return year, doy
     except (ValueError, AttributeError) as e:
-        print(f"Error extracting date from {filename}: {e}")
+        logger.error(f"Error extracting date from {filename}: {e}")
     
     return None, None
 
@@ -217,7 +219,7 @@ def mosaic_get_data_dirs(ftp, m=None):
             
             return yydoy_dirs
         except Exception as e:
-            print(f"Error checking directory {current_path}: {str(e)}")
+            logger.error(f"Error checking directory {current_path}: {str(e)}")
             return []
 
     # Search for YYdoy directories starting from each root directory
@@ -239,7 +241,7 @@ def netr8_get_data_dirs(ftp):
             if len(dirname) == 6 and dirname.isdigit():
                 date_dirs.append(("internal", dirname))
     except Exception as e:
-        print(f"Error accessing Internal directory: {e}")
+        logger.error(f"Error accessing Internal directory: {e}")
     
     return date_dirs
 
@@ -258,9 +260,9 @@ def netr9_get_data_dirs(ftp):
                     if len(dirname) == 6 and dirname.isdigit():
                         date_dirs.append((dir_type.lower(), dirname))
             except Exception as e:
-                print(f"Error accessing {dir_type} directory: {e}")
+                logger.error(f"Error accessing {dir_type} directory: {e}")
     except Exception as e:
-        print(f"Error checking NetR9 directories: {e}")
+        logger.error(f"Error checking NetR9 directories: {e}")
     
     return date_dirs
 
@@ -275,7 +277,7 @@ def netrs_get_data_dirs(ftp):
             if len(dirname) == 6 and dirname.isdigit():
                 date_dirs.append(("root", dirname))
     except Exception as e:
-        print(f"Error listing root directory: {e}")
+        logger.error(f"Error listing root directory: {e}")
     
     return date_dirs
 
@@ -288,6 +290,7 @@ def download_gnss_file(
         # First identify the receiver type
         receiver_type = identify_receiver_type(ftp)
         if not receiver_type:
+            logger.error("Could not identify receiver type")
             return None, None
 
         # Create a temporary file with the appropriate extension
@@ -334,7 +337,7 @@ def download_gnss_file(
                                 dirname = " ".join(parts[8:])
                                 root_dirs.append(dirname)
                     except Exception as e:
-                        print(f"Error listing root directory: {str(e)}")
+                        logger.error(f"Error listing root directory: {str(e)}")
 
                     # Function to recursively search for YYdoy directories
                     def find_yydoy_dir(
@@ -386,7 +389,7 @@ def download_gnss_file(
 
                             return None
                         except Exception as e:
-                            print(
+                            logger.error(
                                 f"Error checking directory {current_path}: {str(e)}"
                             )
                             return None
@@ -400,7 +403,7 @@ def download_gnss_file(
                             break
 
                     if not yydoy_path:
-                        print(f"Could not find YYdoy directory for {yydoy}")
+                        logger.error(f"Could not find YYdoy directory for {yydoy}")
                         return None, None
 
                     # Now we have the path to the YYdoy directory
@@ -449,33 +452,31 @@ def download_gnss_file(
 
                         if remote_files:
                             remote_file = remote_files[0]
-                            print(f"Downloading {remote_file}...")
+                            logger.info(f"Downloading {remote_file}...")
                             ftp.retrbinary(
                                 f"RETR {remote_file}", dnld_file.write
                             )
                             dnld_file.flush()
                             size = os.path.getsize(dnld_file.name)
-                            print(
-                                f"Downloaded {remote_file} ({format_filesize(size)})"
-                            )
+                            logger.info(f"Downloaded {remote_file} ({format_filesize(size)})")
                             return dnld_file, remote_file
                         else:
-                            print(
+                            logger.error(
                                 f"No RINEX observation files found in {yydoy_path}"
                             )
                     except Exception as e:
-                        print(
+                        logger.error(
                             f"Error accessing YYdoy directory {yydoy_path}: {str(e)}"
                         )
 
-                    print("Could not find file in Mosaic directory structure")
+                    logger.error("Could not find file in Mosaic directory structure")
                     return None, None
                 except Exception as e:
-                    print(
+                    logger.error(
                         f"Error traversing Mosaic directory structure: {str(e)}"
                     )
 
-                    print("Could not find file in Mosaic directory structure")
+                    logger.error("Could not find file in Mosaic directory structure")
                     return None, None
             # Try NetR8/NetR9 directory structure
             elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
@@ -520,20 +521,16 @@ def download_gnss_file(
 
                     if remote_files:
                         remote_file = remote_files[0]
-                        print(
-                            f"Downloading {remote_file} (converting on-the-fly)..."
-                        )
+                        logger.info(f"Downloading {remote_file} (converting on-the-fly)...")
                         ftp.retrbinary(
                             f"RETR {remote_file}", dnld_file.write
                         )
                         dnld_file.flush()
                         size = os.path.getsize(dnld_file.name)
-                        print(
-                            f"Downloaded {remote_file} ({format_filesize(size)})"
-                        )
+                        logger.info(f"Downloaded {remote_file} ({format_filesize(size)})")
                         return dnld_file, remote_file
                 except Exception as e:
-                    print(
+                    logger.error(
                         f"Error accessing NetR8/9 directory {internal_gps_dirname}: {str(e)}"
                     )
 
@@ -579,22 +576,18 @@ def download_gnss_file(
 
                     if remote_files:
                         remote_file = remote_files[0]
-                        print(
-                            f"Downloading {remote_file} (converting on-the-fly)..."
-                        )
+                        logger.info(f"Downloading {remote_file} (converting on-the-fly)...")
                         ftp.retrbinary(
                             f"RETR {remote_file}", dnld_file.write
                         )
                         dnld_file.flush()
                         size = os.path.getsize(dnld_file.name)
-                        print(
-                            f"Downloaded {remote_file} ({format_filesize(size)})"
-                        )
+                        logger.info(f"Downloaded {remote_file} ({format_filesize(size)})")
                         return dnld_file, remote_file
                 except Exception as e:
-                    print(f"Error accessing root directory: {str(e)}")
+                    logger.error(f"Error accessing root directory: {str(e)}")
 
-                print("Could not find file in NetR8/9 directory structure")
+                logger.error("Could not find file in NetR8/9 directory structure")
                 return None, None
             else:  # NetRS
                 try:
@@ -634,26 +627,24 @@ def download_gnss_file(
 
                     if remote_files:
                         remote_file = remote_files[0]
-                        print(f"Downloading {remote_file}...")
+                        logger.info(f"Downloading {remote_file}...")
                         ftp.retrbinary(
                             f"RETR {remote_file}", dnld_file.write
                         )
                         dnld_file.flush()
                         size = os.path.getsize(dnld_file.name)
-                        print(
-                            f"Downloaded {remote_file} ({format_filesize(size)})"
-                        )
+                        logger.info(f"Downloaded {remote_file} ({format_filesize(size)})")
                         return dnld_file, remote_file
                 except Exception as e:
-                    print(
+                    logger.error(
                         f"Error accessing NetRS directory {gps_dirname}: {str(e)}"
                     )
 
-                print("Could not find file in NetRS directory structure")
+                logger.error("Could not find file in NetRS directory structure")
                 return None, None
 
         except Exception as e:
-            print(f"Error downloading file: {str(e)}")
+            logger.error(f"Error downloading file: {str(e)}")
             return None, None
 
     return with_ftp_connection(fqdn, download_operation)
@@ -677,35 +668,36 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
         # First identify the receiver type
         receiver_type = identify_receiver_type(ftp)
         if not receiver_type:
+            logger.error("Could not identify receiver type")
             return False
 
-        print(f"Identified receiver type: {receiver_type.value}")
+        logger.info(f"Identified receiver type: {receiver_type.value}")
 
         # Get data directories based on receiver type
         if receiver_type == ReceiverType.MOSAIC:
             data_dirs = mosaic_get_data_dirs(ftp)
             if not data_dirs:
-                print("No YYdoy directories found")
+                logger.error("No YYdoy directories found")
                 return False
-            print(f"Found {len(data_dirs)} YYdoy directories")
+            logger.info(f"Found {len(data_dirs)} YYdoy directories")
         elif receiver_type == ReceiverType.NETR8:
             data_dirs = netr8_get_data_dirs(ftp)
             if not data_dirs:
-                print("No date directories found in Internal")
+                logger.error("No date directories found in Internal")
                 return False
-            print(f"Found {len(data_dirs)} date directories in Internal")
+            logger.info(f"Found {len(data_dirs)} date directories in Internal")
         elif receiver_type == ReceiverType.NETR9:
             data_dirs = netr9_get_data_dirs(ftp)
             if not data_dirs:
-                print("No date directories found in Internal/External")
+                logger.error("No date directories found in Internal/External")
                 return False
-            print(f"Found {len(data_dirs)} date directories in Internal/External")
+            logger.info(f"Found {len(data_dirs)} date directories in Internal/External")
         else:  # NetRS
             data_dirs = netrs_get_data_dirs(ftp)
             if not data_dirs:
-                print("No date directories found")
+                logger.error("No date directories found")
                 return False
-            print(f"Found {len(data_dirs)} date directories")
+            logger.info(f"Found {len(data_dirs)} date directories")
 
         # Process each directory
         for dir_info in data_dirs:
@@ -728,9 +720,9 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
                     if receiver_type == ReceiverType.NETR9:
                         ftp.cwd("/")
                     ftp.cwd(full_path)
-                    print(f"Processing directory: {full_path}")
+                    logger.info(f"Processing directory: {full_path}")
                 except ftp_errors as e:
-                    print(f"Couldn't access directory {full_path}: {e}")
+                    logger.error(f"Couldn't access directory {full_path}: {e}")
                     continue
 
                 # Get list of files in current directory
@@ -741,10 +733,10 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
                 target_files = get_target_files(remote_files, receiver_type)
 
                 if not target_files:
-                    print(f"No target files found in {full_path}")
+                    logger.info(f"No target files found in {full_path}")
                     continue
 
-                print(f"Found {len(target_files)} target files in {full_path}")
+                logger.info(f"Found {len(target_files)} target files in {full_path}")
 
                 # Process each file
                 for remote_file in target_files:
@@ -752,7 +744,7 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
                         # Extract date information from filename
                         year, doy = extract_date_from_filename(remote_file, receiver_type)
                         if not year or not doy:
-                            print(f"Could not extract date information from {remote_file}")
+                            logger.error(f"Could not extract date information from {remote_file}")
                             continue
 
                         # Create measurement file object for this file
@@ -766,40 +758,45 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
                         try:
                             response = ftp.retrbinary("RETR " + remote_file, dnld_file.write, 1024)
                         except ftp_errors as e:
-                            print(f"Couldn't download {remote_file}: {e}")
+                            logger.error(f"Couldn't download {remote_file}: {e}")
                             os.remove(dnld_file.name)
                             continue
 
                         # Check if download was successful
                         if not response.startswith("226"):
-                            print(f"Transfer error for {remote_file}. File may be incomplete.")
+                            logger.error(f"Transfer error for {remote_file}. File may be incomplete.")
                             os.remove(dnld_file.name)
                             continue
 
                         # Check file size
                         tmpsize = os.path.getsize(dnld_file.name)
                         if tmpsize == 0:
-                            print(f"Downloaded file {remote_file} was empty")
+                            logger.error(f"Downloaded file {remote_file} was empty")
                             os.remove(dnld_file.name)
                             continue
 
                         # Process the downloaded file
                         if process_downloaded_file(dnld_file, receiver_type, station, args, m):
-                            print(f"Downloaded {remote_file} and processed successfully")
+                            if receiver_type == ReceiverType.NETRS:
+                                logger.info(f"Downloaded {remote_file} and converted to RINEX")
+                            elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
+                                logger.info(f"Downloaded {remote_file} and extracted RINEX from zip")
+                            else:  # MOSAIC
+                                logger.info(f"Downloaded {remote_file} (RINEX file)")
                         else:
-                            print(f"Downloaded {remote_file} but processing failed")
+                            logger.error(f"Downloaded {remote_file} but processing failed")
 
                         os.remove(dnld_file.name)
 
                     except Exception as e:
-                        print(f"Error processing {remote_file}: {e}")
+                        logger.error(f"Error processing {remote_file}: {e}")
                         continue
 
                 # Go back to root directory for next iteration
                 ftp.cwd("/")
 
             except Exception as e:
-                print(f"Error processing directory {dir_info}: {e}")
+                logger.error(f"Error processing directory {dir_info}: {e}")
                 continue
 
         return True
@@ -811,9 +808,7 @@ def process_downloaded_file(
     downloaded_file, receiver_type, station, args, m
 ):
     """Process a downloaded file based on receiver type"""
-    print(
-        f"Processing downloaded file: {downloaded_file.name} for receiver type {receiver_type.value}"
-    )
+    logger.debug(f"Processing downloaded file: {downloaded_file.name} for receiver type {receiver_type.value}")
 
     try:
         if receiver_type == ReceiverType.NETRS:
@@ -839,40 +834,35 @@ def process_downloaded_file(
             return False
 
         elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
-            # For NetR8 and NetR9, extract RINEX file from zip
             try:
+                # For NetR8/NetR9, extract RINEX file from zip
                 with zipfile.ZipFile(downloaded_file.name, "r") as zip_ref:
                     # List contents for debugging
-                    print("Zip contents:", zip_ref.namelist())
+                    logger.debug("Zip contents: " + str(zip_ref.namelist()))
 
                     # Find the RINEX observation file
-                    rinex_files = [
-                        f
-                        for f in zip_ref.namelist()
-                        if f.lower().endswith("o")
-                    ]
+                    # Look for files ending with two digits + O/o (e.g., .25O, .26O, .25o, .26o)
+                    rinex_files = []
+                    for f in zip_ref.namelist():
+                        # Check for two digits followed by O or o (e.g., .25O, .26O, .25o, .26o)
+                        if re.search(r'\.\d{2}[Oo]$', f):
+                            rinex_files.append(f)
+                    
                     if not rinex_files:
-                        print("No RINEX observation files found in zip")
+                        logger.error("No RINEX observation files found in zip")
                         return False
 
-                    print(
-                        f"Extracting observation file to {m.daily_dnld_path}"
+                    logger.debug(f"Found RINEX files: {rinex_files}")
+                    logger.debug(f"Extracting observation file to {m.daily_dnld_path}")
+                    zip_ref.extract(rinex_files[0], os.path.dirname(m.daily_dnld_path))
+                    os.rename(
+                        os.path.join(os.path.dirname(m.daily_dnld_path), rinex_files[0]),
+                        m.daily_dnld_path,
                     )
-
-                    # Create output directory if it doesn't exist
-                    os.makedirs(os.path.dirname(m.daily_dnld_path), exist_ok=True)
-
-                    # Extract the first RINEX file to the final destination
-                    with zip_ref.open(rinex_files[0]) as source, open(
-                        m.daily_dnld_path, "wb"
-                    ) as target:
-                        target.write(source.read())
 
                     if os.path.exists(m.daily_dnld_path):
                         size = os.path.getsize(m.daily_dnld_path)
-                        print(
-                            f"Extracted observation file size: {format_filesize(size)}"
-                        )
+                        logger.debug(f"Extracted observation file size: {format_filesize(size)}")
                         # Edit RINEX header with station metadata
                         return edit_rinex_header(
                             m.daily_dnld_path,
@@ -887,31 +877,24 @@ def process_downloaded_file(
                             args.antenna_number
                         )
                     else:
-                        print("Extracted file not found")
+                        logger.error("Extracted file not found")
                         return False
 
             except zipfile.BadZipFile:
-                print("Invalid zip file")
+                logger.error("Invalid zip file")
                 return False
             except Exception as e:
-                print(f"Error extracting zip: {str(e)}")
+                logger.error(f"Error extracting zip: {str(e)}")
                 return False
 
         elif receiver_type == ReceiverType.MOSAIC:
-            # For Mosaic, files are already in RINEX format, just copy the file
             try:
-                # Create output directory if it doesn't exist
-                os.makedirs(os.path.dirname(m.daily_dnld_path), exist_ok=True)
-
-                # Copy the file to the output location
+                # For Mosaic, just copy the RINEX file
                 shutil.copy2(downloaded_file.name, m.daily_dnld_path)
 
-                # Verify the file was copied
                 if os.path.exists(m.daily_dnld_path):
                     size = os.path.getsize(m.daily_dnld_path)
-                    print(
-                        f"Copied Mosaic RINEX observation file to {m.daily_dnld_path} ({format_filesize(size)})"
-                    )
+                    logger.debug(f"Copied Mosaic RINEX observation file to {m.daily_dnld_path} ({format_filesize(size)})")
                     # Edit RINEX header with station metadata
                     return edit_rinex_header(
                         m.daily_dnld_path,
@@ -926,17 +909,17 @@ def process_downloaded_file(
                         args.antenna_number
                     )
                 else:
-                    print("Failed to copy Mosaic RINEX observation file")
+                    logger.error("Failed to copy Mosaic RINEX observation file")
                     return False
 
             except Exception as e:
-                print(f"Error processing Mosaic file: {str(e)}")
+                logger.error(f"Error processing Mosaic file: {str(e)}")
                 return False
 
         else:
-            print(f"Unsupported receiver type: {receiver_type.value}")
+            logger.error(f"Unsupported receiver type: {receiver_type.value}")
             return False
 
     except Exception as e:
-        print(f"Error processing downloaded file: {str(e)}")
+        logger.error(f"Error processing downloaded file: {str(e)}")
         return False

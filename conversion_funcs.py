@@ -4,6 +4,9 @@ import os
 import sys
 import subprocess
 import tempfile
+import logging
+
+logger = logging.getLogger(__name__)
 
 def edit_rinex_header(infile, m, station, organization, user, antenna_type, 
                      station_cartesian=None, station_llh=None, 
@@ -42,7 +45,7 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
             
         # Check if file has END OF HEADER marker
         if 'END OF HEADER' not in ''.join(lines):
-            print("Warning: No END OF HEADER marker found, adding one...")
+            logger.warning("No END OF HEADER marker found, adding one...")
             # Find the first data line (starts with a number)
             data_start = 0
             for i, line in enumerate(lines):
@@ -82,7 +85,7 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
         infile = temp_file
             
     except Exception as e:
-        print(f"Error fixing RINEX header: {e}")
+        logger.error(f"Error fixing RINEX header: {e}")
         return False
 
     # Build teqc command with options
@@ -128,7 +131,7 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
                 x, y, z = map(float, coords)
                 args.extend(['-O.px', str(x), str(y), str(z)])
             except ValueError:
-                print("Warning: Invalid cartesian coordinates format. Coordinates must be numeric values.")
+                logger.warning("Invalid cartesian coordinates format. Coordinates must be numeric values.")
     elif station_llh:
         # Split by whitespace
         coords = station_llh.split()
@@ -138,7 +141,7 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
                 lat, lon, height = map(float, coords)
                 args.extend(['-O.pg', str(lat), str(lon), str(height)])
             except ValueError:
-                print("Warning: Invalid geodetic coordinates format. Coordinates must be numeric values.")
+                logger.warning("Invalid geodetic coordinates format. Coordinates must be numeric values.")
     
     # Add input file
     args.append(infile)
@@ -150,12 +153,12 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
     try:
         # First check if input file exists and has content
         if not os.path.exists(infile):
-            print(f"Error: Input file {infile} does not exist")
+            logger.error(f"Input file {infile} does not exist")
             return False
             
         input_size = os.path.getsize(infile)
         if input_size == 0:
-            print(f"Error: Input file {infile} is empty")
+            logger.error(f"Input file {infile} is empty")
             return False
         
         # Run teqc and capture output
@@ -163,7 +166,7 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
         
         # Check if command was successful
         if result.returncode != 0:
-            print(f"Error running teqc: {result.stderr}")
+            logger.error(f"Error running teqc: {result.stderr}")
             return False
             
         # Write the output to the file
@@ -172,12 +175,12 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
             
         # Verify output file was created and has content
         if not os.path.exists(m.daily_dnld_path):
-            print(f"Error: Output file {m.daily_dnld_path} was not created")
+            logger.error(f"Output file {m.daily_dnld_path} was not created")
             return False
             
         output_size = os.path.getsize(m.daily_dnld_path)
         if output_size == 0:
-            print(f"Error: Output file {m.daily_dnld_path} is empty")
+            logger.error(f"Output file {m.daily_dnld_path} is empty")
             return False
         
         # Clean up temporary files
@@ -190,7 +193,7 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
         return True
         
     except Exception as e:
-        print(f"Couldn't run teqc to edit RINEX header: {e}")
+        logger.error(f"Couldn't run teqc to edit RINEX header: {e}")
         # Clean up temporary files
         if infile.endswith('.fixed'):
             try:
@@ -209,7 +212,7 @@ def convert_netrs(infile, outfile, user=None):
         subprocess.run(args, \
             stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
     except Exception as e:
-        print("Couldn't run runpkr00, error:",e)
+        logger.error(f"Couldn't run runpkr00, error: {e}")
         return
     tmpfile.flush()
     tmpfile.seek(0)
@@ -229,7 +232,7 @@ def convert_netrs(infile, outfile, user=None):
         try:
             subprocess.run(args, stdout = f, stderr = subprocess.DEVNULL)
         except Exception as e:
-            print("Couldn't run teqc, error:",e)
+            logger.error(f"Couldn't run teqc, error: {e}")
             return
     s = outfile.split('/')
     s = s[len(s)-2] + '/' + s[len(s)-1]

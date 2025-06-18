@@ -33,6 +33,65 @@ import glob
 import re  # Add regex import
 import socket
 import gzip
+import logging
+import stat
+
+# Configure logging
+def setup_logging():
+    # Define log locations
+    system_log = '/var/log/get_gnss_ftp.log'
+    user_log = os.path.expanduser('~/.local/log/get_gnss_ftp.log')
+    
+    # Create formatter
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    
+    # Create handlers
+    handlers = []
+    
+    # Try system log first
+    try:
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(system_log), exist_ok=True)
+        # Try to create/access the log file
+        with open(system_log, 'a') as f:
+            pass
+        # If successful, set up system log handler
+        system_handler = logging.FileHandler(system_log)
+        system_handler.setFormatter(formatter)
+        handlers.append(system_handler)
+        logger = logging.getLogger(__name__)
+        logger.info(f"Logging to system log: {system_log}")
+    except (PermissionError, OSError) as e:
+        # If system log fails, try user log
+        try:
+            # Create user log directory if it doesn't exist
+            os.makedirs(os.path.dirname(user_log), exist_ok=True)
+            user_handler = logging.FileHandler(user_log)
+            user_handler.setFormatter(formatter)
+            handlers.append(user_handler)
+            logger = logging.getLogger(__name__)
+            logger.info(f"System log access denied, logging to user log: {user_log}")
+        except Exception as e:
+            # If both fail, just use console
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Could not set up file logging: {e}")
+            logger.warning("Logging to console only")
+    
+    # Always add console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    handlers.append(console_handler)
+    
+    # Configure root logger
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=handlers
+    )
+    
+    return logging.getLogger(__name__)
+
+# Set up logging
+logger = setup_logging()
 
 # This points to where the modules live
 MODULES_DIR = "/usr/local/lib/gnss_ftp"
@@ -41,7 +100,7 @@ if MODULES_DIR not in sys.path:
 
 from gnsscal import *
 from gnss_file_tools import *
-from ftp_funcs import download_gnss_file, download_all_new_files, identify_receiver_type, process_downloaded_file
+from ftp_funcs import download_gnss_file, download_all_new_files, identify_receiver_type, process_downloaded_file, ReceiverType
 from sftp_funcs import get_host_key, upload_to_sftp
 from conversion_funcs import convert_netrs
 
@@ -265,24 +324,25 @@ def zip_processed_files(measurement_path):
         print(f"Error creating zip archive: {str(e)}")
 
 def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sftp_user=None, sftp_pass=None, today=False, all_new=False):
-    print("get_netrs_ftp.py:")    # id for logging
+    logger.debug("Starting get_netrs_ftp.py")    # Changed to debug
     os.umask(0o002)        # o-w
     
     if all_new:
-        print("Downloading all new RINEX files")
+        logger.info("Downloading all new RINEX files")
         # Create initial MeasurementFiles object to get current date info
         m = TECMeasurementFiles(measurement_path, 0, 0, station_name=station)  # This will use yesterday's date
         
         # Use the new module to download all new files
         if not download_all_new_files(fqdn, measurement_path, station, args, TECMeasurementFiles):
+            logger.error("Failed to download all new files")
             return
         
         # If SFTP parameters are provided, upload all downloaded files
         if sftp_host and sftp_user and sftp_pass:
-            print("\nUploading files to SFTP server...")
+            logger.info("Uploading files to SFTP server...")
             upload_to_sftp(measurement_path, sftp_host, sftp_user, sftp_pass)
         else:
-            print("\nSkipping SFTP upload - server details not provided")
+            logger.debug("Skipping SFTP upload - server details not provided")
         
         # Check disk space and purge if needed
         check_disk_space(measurement_path)
@@ -296,17 +356,16 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
     # Create TECMeasurementFiles object with the provided year and doy
     m = TECMeasurementFiles(measurement_path, year, doy, today, station)
 
-    print("Year, day of year, GPS week, GPS day of week:", \
-        m.year_num, m.doy_num, m.gps_week_str, m.gps_dow_str)
+    logger.info(f"Year: {m.year_num}, DoY: {m.doy_num}, GPS week: {m.gps_week_str}, GPS DoW: {m.gps_dow_str}")
     
     if today:
-        print("Getting today's file (may be partial)")
+        logger.info("Getting today's file (may be partial)")
     else:
         # don't try to download a future date!
         if m.gps_days_num > m.today_gps_days_num:
-            print("Trying to download future day!")
-            print("GPS week:",m.gps_week_str,"day of week:",m.gps_dow_str)
-            print("Today is:",m.today_gps_week_str,m.today_gps_dow_str)
+            logger.error("Trying to download future day!")
+            logger.error(f"GPS week: {m.gps_week_str}, day of week: {m.gps_dow_str}")
+            logger.error(f"Today is: {m.today_gps_week_str} {m.today_gps_dow_str}")
             sys.exit()
     
     # Use the date components from the TECMeasurementFiles object
@@ -326,6 +385,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
     dnld_file, full_filename = download_gnss_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today, m)
     
     if not dnld_file or not full_filename:
+        logger.error("Failed to download file")
         return
 
     # was there any data downloaded?
@@ -336,29 +396,34 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
             receiver_type = identify_receiver_type(ftp)
             
         if process_downloaded_file(dnld_file, receiver_type, station, args, m):
-            print("Downloaded",full_filename,"and converted to RINEX")
+            if receiver_type == ReceiverType.NETRS:
+                logger.info(f"Downloaded {full_filename} and converted to RINEX")
+            elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
+                logger.info(f"Downloaded {full_filename} and extracted RINEX from zip")
+            else:  # MOSAIC
+                logger.info(f"Downloaded {full_filename} (RINEX file)")
             s = m.daily_dnld_path.split('/')
             s = s[len(s)-2] + '/' + s[len(s)-1]
             if os.path.exists(m.daily_dnld_path):
                 size = os.path.getsize(m.daily_dnld_path)
-                print("Saved as " + s + " (" + format_filesize(size) + ")")
+                logger.debug(f"Saved as {s} ({format_filesize(size)})")
             else:
-                print("Warning: Expected output file not found at", m.daily_dnld_path)
+                logger.error(f"Expected output file not found at {m.daily_dnld_path}")
         else:
-            print("Downloaded",full_filename,"but couldn't convert to RINEX!")
+            logger.error(f"Downloaded {full_filename} but couldn't convert to RINEX!")
     else:
         os.remove(dnld_file.name)
-        print("Downloaded file was empty.  Exiting:")
+        logger.error("Downloaded file was empty. Exiting.")
         return
 
     os.remove(dnld_file.name)
 
     # If SFTP parameters are provided, upload files
     if sftp_host and sftp_user and sftp_pass:
-        print("\nUploading files to SFTP server...")
+        logger.info("Uploading files to SFTP server...")
         upload_to_sftp(measurement_path, sftp_host, sftp_user, sftp_pass)
     else:
-        print("\nSkipping SFTP upload - server details not provided")
+        logger.debug("Skipping SFTP upload - server details not provided")
 
     # Check disk space and purge if needed
     check_disk_space(measurement_path)
