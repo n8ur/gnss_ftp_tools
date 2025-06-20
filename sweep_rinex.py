@@ -32,6 +32,9 @@ BASE_RINEX_DIR = "/sftp/users/haystack/data"
 SFTP_USERS_BASE_DIR = "/sftp/users"
 UPLOADS_DIR = "uploads"
 
+# List of file prefixes to ignore (first 4 characters)
+IGNORED_PREFIXES = ["hs00"]
+
 
 def get_doy_from_filename(filename):
     """
@@ -154,6 +157,13 @@ def process_user_directory(user_dir):
         src_path = os.path.join(uploads_path, filename)
         if not os.path.isfile(src_path):
             continue
+
+        # Check if file should be ignored based on prefix
+        if len(filename) >= 4:
+            file_prefix = filename[:4]
+            if file_prefix in IGNORED_PREFIXES:
+                logging.info("Ignoring file with prefix '{}': {}".format(file_prefix, filename))
+                continue
 
         year, doy = get_doy_from_filename(filename)
         if not year or not doy:
