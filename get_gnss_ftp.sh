@@ -2,7 +2,7 @@
 
 /usr/local/bin/get_gnss_ftp.py \
     -m ./ -f netr9-1-admin.febo.com \
-    --station hs00-n8ur-netr9-1 \
+    --station hs00 \
     --organization "HamSci TEC Project" \
     --user "John Ackermann N8UR" \
     --antenna_type "TRM41249.00" \
