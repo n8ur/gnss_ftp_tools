@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
 
+############################################################
+# convert_trimble.py v.20250622.1
+# copyright 2025 John Ackermann N8UR jra@febo.com
+#
+# Simple program to convert Trimble T00/T02/T04 files to
+# RINEX format. Does no header editing.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
 # Simple program to convert Trimble T00/T02/T04 files to
 # RINEX.  Does no header editing.
 

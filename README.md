@@ -29,12 +29,31 @@ RINEX format, and optionally uploading it to a central server via SFTP.
 - Required third-party programs:
   - runpkr00 (for Trimble file conversion)
   - teqc (for RINEX conversion) 
-NOTE:  These two programs are (so far as I can tell) free to use 
-but not open source because they rely on proprietary information from 
-GNSS manufacturers.  Both are for Intel architecture but will run 
-on a Raspberry Pi ARM system using the qemu emulator.  On the
-Raspberry Pi, install qemu and binfmt support as shown below.  After 
-that, the programs should run from the command line without further fuss.
+
+## Notes About the Third-Party Programs
+
+The runpkr00 program was written by Trimble and teqc was written by 
+the UNAVCO project.  Both are free to use but not open source because 
+they rely on proprietary information from GNSS manufacturers.  Both 
+are for Intel architecture but will run (slowly!) on a Raspberry Pi 
+ARM system using the qemu emulator.  On the Raspberry Pi, install qemu 
+and binfmt support as shown below.  After that, the programs should run 
+from the command line without further fuss.
+
+"runpkr00" has not seen a public update in a long time, and the versions
+commonly found don't work with modern Linux systems.  I was able to find
+a version of the critical library and build a statically-linked 32 bit
+executable with that.  That is the version provided here.
+
+The "teqc" program provided is the *statically* linked one for Centos
+systems downloaded from 
+https://www.unavco.org/software/data-processing/teqc/teqc.html
+
+The "gnsscal" module is from https://pypi.org/project/gnsscal/
+You could install this via pip, but then you have to deal with the "break
+system files" hoohaw that Debian now puts you through.  To make things
+easier, I just include it in the locally-installed modules directory
+/usr/local/lib/gnss_ftp.
 
 ## Installation
 
@@ -133,6 +152,21 @@ measurement path (by default, */data*):
 - *download/*: Raw downloaded files
 - *processed/*: Processed and converted files
 
+## Auxiliary Programs
+The package includes a few auxiliary programs:
+
+1.  convert_trimble.py reads a Trimble T00 format data file and converts
+it to a RINEX file.  It does not perform any header editing and is a simple
+wrapper around the runpkr00 and teqc programs to generate a quick-and-dirty
+RINEX file.  Run it as:  ./convert_trimble.py <input_file>.T00
+
+2.  sweep_rinex.py is used at the central server to do a daily sweep of
+files uploaded by participating stations, moving those files to a 
+directory where the Haystack team can retrieve them.  make_sftp_user.sh 
+is a tool for creating users with upload permissions.  Neither of these 
+programs are used by receiver sites.  They are included here to keep all
+the components of the system in one place.
+
 ## Automation
 
 The package includes systemd service files for automated operation. To
@@ -166,24 +200,3 @@ option) any later version.
 ## Author
 
 John Ackermann N8UR (jra@febo.com) 
-
-## Notes -- to be integrated above
-1.  The "runpkr00" package is statically linked using a proprietary library
-provided by Trimble.  It is an i386 32 bit program, but will run on the
-rasperry pi if you have the "qemu-user" and "binfmt-support" packages
-installed.
-
-2.  The "teqc" program is the *statically* linked version for the Raspberry
-Pi as the dynamically linked one doesn't seem to work.  It was downloaded
-from https://www.unavco.org/software/data-processing/teqc/teqc.html
-
-3.  The "gnsscal" module is from https://pypi.org/project/gnsscal/
-You could install this via pip, but then you have to deal with the "break
-system files" hoohaw that Debian now puts you through.
-
-4.  Install paramiko for sftp: "sudo apt install python3-maramiko"
-
-5.  The code assumes that the NetRS "system name" is the same as the
-hostname.  This needs to be correct in order for file downloads to work
-properly.
-

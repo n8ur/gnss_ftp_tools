@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
 
+############################################################
+# sweep_rinex.py v.20250622.1
+# copyright 2025 John Ackermann N8UR jra@febo.com
+#
+# Program to sweep RINEX files from user upload directories
+# and organize them into year/doy directory structure.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
 # NOTE -- this is backwards compatible with Python 3.5 as it
 # does not use f vars the way the original version did.
 
@@ -117,7 +134,6 @@ def move_file_safely(src_path, dest_dir, filename):
         # Remove the original file only after successful move
         os.remove(src_path)
 
-        logging.info("Moved {} to {}".format(filename, dest_dir))
         return True
 
     except Exception as e:
@@ -133,8 +149,10 @@ def move_file_safely(src_path, dest_dir, filename):
 
 def process_user_directory(user_dir):
     """Process files in a user's upload directory"""
+    user_name = os.path.basename(user_dir)
+    
     # We want to skip processing the 'haystack' directory itself
-    if os.path.basename(user_dir) == "haystack":
+    if user_name == "haystack":
         logging.info("Skipping sweep of the destination directory 'haystack'.")
         return
 
@@ -151,7 +169,7 @@ def process_user_directory(user_dir):
     if not files:
         return
 
-    logging.info("Found files in {}".format(uploads_path))
+    logging.info("Found {} files in user '{}' uploads directory: {}".format(len(files), user_name, uploads_path))
 
     for filename in files:
         src_path = os.path.join(uploads_path, filename)
@@ -162,14 +180,14 @@ def process_user_directory(user_dir):
         if len(filename) >= 4:
             file_prefix = filename[:4]
             if file_prefix in IGNORED_PREFIXES:
-                logging.info("Ignoring file with prefix '{}': {}".format(file_prefix, filename))
+                logging.info("User '{}': Ignoring file with prefix '{}': {}".format(user_name, file_prefix, filename))
                 continue
 
         year, doy = get_doy_from_filename(filename)
         if not year or not doy:
             logging.warning(
-                "Could not determine year/doy from filename: {}".format(
-                    filename
+                "User '{}': Could not determine year/doy from filename: {}".format(
+                    user_name, filename
                 )
             )
             continue
@@ -178,7 +196,11 @@ def process_user_directory(user_dir):
         if not target_dir:
             continue
 
-        move_file_safely(src_path, target_dir, filename)
+        success = move_file_safely(src_path, target_dir, filename)
+        if success:
+            logging.info("User '{}': Successfully moved '{}' to {}".format(user_name, filename, target_dir))
+        else:
+            logging.error("User '{}': Failed to move '{}' to {}".format(user_name, filename, target_dir))
 
 
 def main():

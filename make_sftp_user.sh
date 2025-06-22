@@ -1,5 +1,22 @@
 #!/bin/bash
 
+############################################################
+# make_sftp_user.sh v.20250622.1
+# copyright 2025 John Ackermann N8UR jra@febo.com
+#
+# Script to create SFTP users with chroot jail configuration
+# for secure file uploads to the GNSS data collection system.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
 # Configuration
 SFTP_GROUP="sftpusers"
 # We've changed this from /home to a dedicated directory

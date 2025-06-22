@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
 
+############################################################
+# sftp_funcs.py v.20250622.1
+# copyright 2025 John Ackermann N8UR jra@febo.com
+#
+# Functions for SFTP operations including host key management
+# and file uploads to SFTP servers.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
 import os
 import sys
 import paramiko
