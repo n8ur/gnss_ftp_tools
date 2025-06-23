@@ -26,6 +26,9 @@ import gzip
 import zipfile
 import logging
 
+# Suppress paramiko's INFO level messages
+logging.getLogger("paramiko").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 def get_host_key(hostname):
@@ -94,7 +97,9 @@ def upload_to_sftp(measurement_path, sftp_host, sftp_user, sftp_pass):
         
         try:
             ssh.connect(sftp_host, username=sftp_user, password=sftp_pass)
+            logger.debug("SFTP connection established")
             sftp = ssh.open_sftp()
+            logger.debug("SFTP session opened")
         except Exception as e:
             logger.error(f"Error establishing SFTP connection: {e}")
             return
@@ -112,7 +117,7 @@ def upload_to_sftp(measurement_path, sftp_host, sftp_user, sftp_pass):
             local_path = os.path.join(download_dir, file)
             if os.path.isfile(local_path):
                 try:
-                    logger.info(f"Processing {file}...")
+                    logger.debug(f"Processing {file} for upload...")
                     
                     # Create gzipped version of the file for SFTP upload
                     gzip_path = local_path + '.gz'
@@ -140,6 +145,7 @@ def upload_to_sftp(measurement_path, sftp_host, sftp_user, sftp_pass):
                     continue
         
         sftp.close()
+        logger.debug("SFTP session closed.")
         ssh.close()
         logger.info("SFTP upload completed")
         

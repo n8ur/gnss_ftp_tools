@@ -308,7 +308,8 @@ def download_gnss_file(
         receiver_type = identify_receiver_type(ftp)
         if not receiver_type:
             logger.error("Could not identify receiver type")
-            return None, None
+            return None, None, None
+        logger.info(f"Detected receiver type: {receiver_type.value}")
 
         # Create a temporary file with the appropriate extension
         if receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
@@ -421,7 +422,7 @@ def download_gnss_file(
 
                     if not yydoy_path:
                         logger.error(f"Could not find YYdoy directory for {yydoy}")
-                        return None, None
+                        return None, None, None
 
                     # Now we have the path to the YYdoy directory
                     # Look for RINEX observation files (ending with 'o')
@@ -469,14 +470,13 @@ def download_gnss_file(
 
                         if remote_files:
                             remote_file = remote_files[0]
-                            logger.info(f"Downloading {remote_file}...")
+                            logger.info(f"Starting download of {remote_file}...")
                             ftp.retrbinary(
                                 f"RETR {remote_file}", dnld_file.write
                             )
                             dnld_file.flush()
                             size = os.path.getsize(dnld_file.name)
-                            logger.info(f"Downloaded {remote_file} ({format_filesize(size)})")
-                            return dnld_file, remote_file
+                            return dnld_file, remote_file, receiver_type
                         else:
                             logger.error(
                                 f"No RINEX observation files found in {yydoy_path}"
@@ -487,14 +487,14 @@ def download_gnss_file(
                         )
 
                     logger.error("Could not find file in Mosaic directory structure")
-                    return None, None
+                    return None, None, None
                 except Exception as e:
                     logger.error(
                         f"Error traversing Mosaic directory structure: {str(e)}"
                     )
 
                     logger.error("Could not find file in Mosaic directory structure")
-                    return None, None
+                    return None, None, None
             # Try NetR8/NetR9 directory structure
             elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
                 try:
@@ -538,14 +538,13 @@ def download_gnss_file(
 
                     if remote_files:
                         remote_file = remote_files[0]
-                        logger.info(f"Downloading {remote_file} (converting on-the-fly)...")
+                        logger.info(f"Starting download of {remote_file} (converting on-the-fly)...")
                         ftp.retrbinary(
                             f"RETR {remote_file}", dnld_file.write
                         )
                         dnld_file.flush()
                         size = os.path.getsize(dnld_file.name)
-                        logger.info(f"Downloaded {remote_file} ({format_filesize(size)})")
-                        return dnld_file, remote_file
+                        return dnld_file, remote_file, receiver_type
                 except Exception as e:
                     logger.error(
                         f"Error accessing NetR8/9 directory {internal_gps_dirname}: {str(e)}"
@@ -593,19 +592,18 @@ def download_gnss_file(
 
                     if remote_files:
                         remote_file = remote_files[0]
-                        logger.info(f"Downloading {remote_file} (converting on-the-fly)...")
+                        logger.info(f"Starting download of {remote_file} (converting on-the-fly)...")
                         ftp.retrbinary(
                             f"RETR {remote_file}", dnld_file.write
                         )
                         dnld_file.flush()
                         size = os.path.getsize(dnld_file.name)
-                        logger.info(f"Downloaded {remote_file} ({format_filesize(size)})")
-                        return dnld_file, remote_file
+                        return dnld_file, remote_file, receiver_type
                 except Exception as e:
                     logger.error(f"Error accessing root directory: {str(e)}")
 
                 logger.error("Could not find file in NetR8/9 directory structure")
-                return None, None
+                return None, None, None
             else:  # NetRS
                 try:
                     ftp.cwd(gps_dirname)
@@ -644,25 +642,24 @@ def download_gnss_file(
 
                     if remote_files:
                         remote_file = remote_files[0]
-                        logger.info(f"Downloading {remote_file}...")
+                        logger.info(f"Starting download of {remote_file}...")
                         ftp.retrbinary(
                             f"RETR {remote_file}", dnld_file.write
                         )
                         dnld_file.flush()
                         size = os.path.getsize(dnld_file.name)
-                        logger.info(f"Downloaded {remote_file} ({format_filesize(size)})")
-                        return dnld_file, remote_file
+                        return dnld_file, remote_file, receiver_type
                 except Exception as e:
                     logger.error(
                         f"Error accessing NetRS directory {gps_dirname}: {str(e)}"
                     )
 
                 logger.error("Could not find file in NetRS directory structure")
-                return None, None
+                return None, None, None
 
         except Exception as e:
             logger.error(f"Error downloading file: {str(e)}")
-            return None, None
+            return None, None, None
 
     return with_ftp_connection(fqdn, download_operation)
 
@@ -836,7 +833,7 @@ def process_downloaded_file(
                 args.user
             ):
                 # Edit RINEX header with station metadata
-                return edit_rinex_header(
+                if edit_rinex_header(
                     m.daily_dnld_path,
                     m,
                     station,
@@ -847,7 +844,12 @@ def process_downloaded_file(
                     args.station_llh,
                     args.marker_num,
                     args.antenna_number
-                )
+                ):
+                    if os.path.exists(m.daily_dnld_path):
+                        size = os.path.getsize(m.daily_dnld_path)
+                        logger.debug(f"Extracted RINEX file {os.path.basename(m.daily_dnld_path)} ({format_filesize(size)})")
+                    return True
+                return False
             return False
 
         elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
@@ -879,7 +881,7 @@ def process_downloaded_file(
 
                     if os.path.exists(m.daily_dnld_path):
                         size = os.path.getsize(m.daily_dnld_path)
-                        logger.debug(f"Extracted observation file size: {format_filesize(size)}")
+                        logger.debug(f"Extracted RINEX file {os.path.basename(m.daily_dnld_path)} ({format_filesize(size)})")
                         # Edit RINEX header with station metadata
                         return edit_rinex_header(
                             m.daily_dnld_path,

@@ -613,6 +613,151 @@ def get_tau(phase_file):
     return tau
 
 
+def dms_to_decimal(degrees, minutes, seconds):
+    """
+    Convert degrees, minutes, seconds to decimal degrees.
+    
+    Args:
+        degrees (float): Degrees (can be negative)
+        minutes (float): Minutes (0-59)
+        seconds (float): Seconds (0-59.999...)
+        
+    Returns:
+        float: Decimal degrees
+    """
+    # Handle negative coordinates (south latitude or west longitude)
+    sign = -1 if degrees < 0 else 1
+    abs_degrees = abs(degrees)
+    
+    decimal = sign * (abs_degrees + minutes/60.0 + seconds/3600.0)
+    return decimal
+
+
+def parse_dms_coordinates(dms_string):
+    """
+    Parse a DMS coordinate string and convert to decimal degrees.
+    
+    Args:
+        dms_string (str): Space-separated string in format:
+                         "lat_deg lat_min lat_sec lon_deg lon_min lon_sec height"
+                         
+    Returns:
+        tuple: (lat_decimal, lon_decimal, height) or None if parsing fails
+    """
+    try:
+        coords = dms_string.split()
+        if len(coords) != 7:
+            return None
+            
+        lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec, height = map(float, coords)
+        
+        # Validate ranges
+        if not (-90 <= lat_deg <= 90) or not (0 <= lat_min < 60) or not (0 <= lat_sec < 60):
+            return None
+        if not (-180 <= lon_deg <= 180) or not (0 <= lon_min < 60) or not (0 <= lon_sec < 60):
+            return None
+            
+        # Convert to decimal degrees (preserve signs)
+        lat_decimal = dms_to_decimal(lat_deg, lat_min, lat_sec)
+        lon_decimal = dms_to_decimal(lon_deg, lon_min, lon_sec)
+        
+        return lat_decimal, lon_decimal, height
+        
+    except (ValueError, TypeError):
+        return None
+
+
+def format_dms_coordinates(lat_decimal, lon_decimal, height):
+    """
+    Convert decimal degrees to DMS format string.
+    
+    Args:
+        lat_decimal (float): Latitude in decimal degrees
+        lon_decimal (float): Longitude in decimal degrees  
+        height (float): Height in meters
+        
+    Returns:
+        str: DMS format string "lat_deg lat_min lat_sec lon_deg lon_min lon_sec height"
+    """
+    def decimal_to_dms(decimal):
+        """Convert decimal degrees to degrees, minutes, seconds"""
+        sign = -1 if decimal < 0 else 1
+        abs_decimal = abs(decimal)
+        
+        degrees = int(abs_decimal)
+        minutes_float = (abs_decimal - degrees) * 60
+        minutes = int(minutes_float)
+        seconds = (minutes_float - minutes) * 60
+        
+        return sign * degrees, minutes, seconds
+    
+    lat_deg, lat_min, lat_sec = decimal_to_dms(lat_decimal)
+    lon_deg, lon_min, lon_sec = decimal_to_dms(lon_decimal)
+    
+    return f"{lat_deg} {lat_min} {lat_sec:.6f} {lon_deg} {lon_min} {lon_sec:.6f} {height}"
+
+
+def parse_natural_dms_coordinates(natural_string):
+    """
+    Parse a natural DMS coordinate string with direction indicators.
+    Accepts both '33 N' and '33N' (and similar for E/W).
+    
+    Args:
+        natural_string (str): String in format like "39 42 0 N 84 10 0 W 247.1"
+                             or "39 42 0N 84 10 0W 247.1"
+                             or "39 42 0 N 84 10 0 W 247.1"
+                             
+    Returns:
+        tuple: (lat_decimal, lon_decimal, height) or None if parsing fails
+    """
+    try:
+        parts = natural_string.split()
+        # Flatten tokens like '33N' into ['33', 'N']
+        expanded = []
+        for p in parts:
+            if len(p) > 1 and p[-1].upper() in ['N', 'S', 'E', 'W'] and p[:-1].replace('.', '', 1).replace('-', '', 1).isdigit():
+                expanded.append(p[:-1])
+                expanded.append(p[-1])
+            else:
+                expanded.append(p)
+        parts = expanded
+        if len(parts) != 9:  # lat_deg lat_min lat_sec lat_dir lon_deg lon_min lon_sec lon_dir height
+            return None
+            
+        lat_deg, lat_min, lat_sec, lat_dir, lon_deg, lon_min, lon_sec, lon_dir, height = parts
+        
+        # Convert to float
+        lat_deg, lat_min, lat_sec = float(lat_deg), float(lat_min), float(lat_sec)
+        lon_deg, lon_min, lon_sec = float(lon_deg), float(lon_min), float(lon_sec)
+        height = float(height)
+        
+        # Apply direction signs
+        if lat_dir.upper() in ['S', 'SOUTH']:
+            lat_deg = -lat_deg
+        elif lat_dir.upper() not in ['N', 'NORTH']:
+            return None
+            
+        if lon_dir.upper() in ['W', 'WEST']:
+            lon_deg = -lon_deg
+        elif lon_dir.upper() not in ['E', 'EAST']:
+            return None
+        
+        # Validate ranges
+        if not (-90 <= lat_deg <= 90) or not (0 <= lat_min < 60) or not (0 <= lat_sec < 60):
+            return None
+        if not (-180 <= lon_deg <= 180) or not (0 <= lon_min < 60) or not (0 <= lon_sec < 60):
+            return None
+            
+        # Convert to decimal degrees
+        lat_decimal = dms_to_decimal(lat_deg, lat_min, lat_sec)
+        lon_decimal = dms_to_decimal(lon_deg, lon_min, lon_sec)
+        
+        return lat_decimal, lon_decimal, height
+        
+    except (ValueError, TypeError):
+        return None
+
+
 if __name__ == '__main__':
     # m_path, date_1, date_2
     if len(sys.argv) == 4:

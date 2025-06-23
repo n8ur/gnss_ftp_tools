@@ -5,7 +5,7 @@
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Simple program to convert Trimble T00/T02/T04 files to
-# RINEX format. Does no header editing.
+# RINEX format. Edits antenna type in RINEX header.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,18 +18,23 @@
 # GNU General Public License for more details.
 
 # Simple program to convert Trimble T00/T02/T04 files to
-# RINEX.  Does no header editing.
+# RINEX.  Edits antenna type in RINEX header.
 
 import os
 import sys
 import subprocess
 import tempfile
+import argparse
 
-def convert_trimble_to_rinex(infile):
+# Import the edit_rinex_header function from conversion_funcs
+from conversion_funcs import edit_rinex_header
+
+def convert_trimble_to_rinex(infile, antenna_type=None):
     """Convert Trimble .T00/.T02/.T04 file to RINEX format.
     
     Args:
         infile (str): Path to input Trimble file (.T00/.T02/.T04)
+        antenna_type (str, optional): Antenna type to set in RINEX header
         
     Returns:
         bool: True if successful, False otherwise
@@ -71,7 +76,38 @@ def convert_trimble_to_rinex(infile):
         if output_size == 0:
             print(f"Error: Output file {outfile} is empty")
             return False
+        
+        # If antenna type is provided, edit the RINEX header
+        if antenna_type:
+            print(f"Editing antenna type to: {antenna_type}")
             
+            # Create a mock measurement object for the edit_rinex_header function
+            class MockMeasurementFiles:
+                def __init__(self, outfile):
+                    # Ensure we have a proper path structure for the edit_rinex_header function
+                    if os.path.dirname(outfile):
+                        self.daily_dnld_path = outfile
+                    else:
+                        # If no directory, use current directory
+                        self.daily_dnld_path = os.path.join('.', outfile)
+            
+            mock_m = MockMeasurementFiles(outfile)
+            
+            # Edit the RINEX header with antenna type
+            success = edit_rinex_header(
+                infile=outfile,
+                m=mock_m,
+                station="UNKNOWN",  # Default station name
+                organization="UNKNOWN",  # Default organization
+                user="UNKNOWN",  # Default user
+                antenna_type=antenna_type
+            )
+            
+            if success:
+                print(f"Successfully edited antenna type in {outfile}")
+            else:
+                print(f"Warning: Failed to edit antenna type, keeping original file")
+        
         print(f"Successfully converted {infile} to {outfile}")
         return True
         
@@ -88,13 +124,13 @@ def convert_trimble_to_rinex(infile):
             pass
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python convert_trimble.py <input_file>")
-        print("Example: python convert_trimble.py data.T00")
-        sys.exit(1)
-        
-    infile = sys.argv[1]
-    success = convert_trimble_to_rinex(infile)
+    parser = argparse.ArgumentParser(description='Convert Trimble T00/T02/T04 files to RINEX format')
+    parser.add_argument('input_file', help='Input Trimble file (.T00/.T02/.T04)')
+    parser.add_argument('--antenna_type', required=True, help='Antenna type to set in RINEX header')
+    
+    args = parser.parse_args()
+    
+    success = convert_trimble_to_rinex(args.input_file, args.antenna_type)
     sys.exit(0 if success else 1)
 
 if __name__ == "__main__":

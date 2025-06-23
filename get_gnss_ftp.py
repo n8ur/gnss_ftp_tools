@@ -230,11 +230,11 @@ def options_get_netrs_ftp():
     parser.add_argument('--antenna_type',
         help='Antenna type (required)',
         required=True)
-    station_location = parser.add_mutually_exclusive_group(required=True)
-    station_location.add_argument('--station_cartesian',
+    parser.add_argument('--station_cartesian',
         help='Station location in WGS84 cartesian coordinates (X Y Z in meters, space-separated)')
-    station_location.add_argument('--station_llh',
-        help='Station location in WGS84 llh coordinates (latitude longitude height in decimal degrees and meters, space-separated)')
+    parser.add_argument('--station_llh',
+        required=True,
+        help='Station location in WGS84 llh coordinates. Accepts decimal degrees (lat lon height), DMS (lat_deg lat_min lat_sec lon_deg lon_min lon_sec height), or DMS with direction (lat_deg lat_min lat_sec N/S lon_deg lon_min lon_sec E/W height).')
     # Add new arguments for SFTP upload
     parser.add_argument('--sftp_host',
         type=str,required=False,
@@ -247,7 +247,48 @@ def options_get_netrs_ftp():
         help="SFTP password")
 
     args = parser.parse_args()
-    
+
+    # Only one of station_cartesian or station_llh is required
+    if not args.station_cartesian and not args.station_llh:
+        logger.error("You must provide either --station_cartesian or --station_llh.")
+        sys.exit(1)
+    if args.station_cartesian and args.station_llh:
+        logger.error("Please provide only one of --station_cartesian or --station_llh, not both.")
+        sys.exit(1)
+
+    # If station_llh is provided, auto-detect and convert format
+    if args.station_llh:
+        llh_parts = args.station_llh.split()
+        try:
+            if len(llh_parts) == 3:
+                # Decimal degrees: lat lon height
+                lat, lon, height = map(float, llh_parts)
+                args.station_llh = f"{lat} {lon} {height}"
+                logger.debug(f"Detected decimal degrees: {args.station_llh}")
+            elif len(llh_parts) == 7:
+                # DMS: lat_deg lat_min lat_sec lon_deg lon_min lon_sec height
+                result = parse_dms_coordinates(args.station_llh)
+                if result:
+                    lat, lon, height = result
+                    args.station_llh = f"{lat} {lon} {height}"
+                    logger.debug(f"Converted DMS to decimal degrees: {args.station_llh}")
+                else:
+                    raise ValueError("Invalid DMS format.")
+            elif len(llh_parts) == 9:
+                # DMS with direction: lat_deg lat_min lat_sec N/S lon_deg lon_min lon_sec E/W height
+                result = parse_natural_dms_coordinates(args.station_llh)
+                if result:
+                    lat, lon, height = result
+                    args.station_llh = f"{lat} {lon} {height}"
+                    logger.debug(f"Converted natural DMS to decimal degrees: {args.station_llh}")
+                else:
+                    raise ValueError("Invalid natural DMS format.")
+            else:
+                raise ValueError("Unrecognized station_llh format. Please provide decimal degrees, DMS, or DMS with direction.")
+        except Exception as e:
+            logger.error(f"Error parsing --station_llh: {e}")
+            sys.exit(1)
+
     return args
 
 ####################################################################
@@ -382,24 +423,25 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
         base_filename = m.yyyy_str + m.mm_str + m.dd_str + "0000"
     
     # Use the new module to download the file
-    dnld_file, full_filename = download_gnss_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today, m)
+    dnld_file, full_filename, receiver_type = download_gnss_file(fqdn, gps_dirname, internal_gps_dirname, base_filename, today, m)
     
-    if not dnld_file or not full_filename:
-        logger.error("Failed to download file")
+    if not dnld_file or not full_filename or not receiver_type:
+        logger.error("Failed to download file or identify receiver type")
         return
 
     # was there any data downloaded?
     tmpsize = os.path.getsize(dnld_file.name)
     if tmpsize > 0:
-        # Get the receiver type
-        with FTP(fqdn, 'anonymous') as ftp:
-            receiver_type = identify_receiver_type(ftp)
-            
         if process_downloaded_file(dnld_file, receiver_type, station, args, m):
             if receiver_type == ReceiverType.NETRS:
                 logger.info(f"Downloaded {full_filename} and converted to RINEX")
             elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
-                logger.info(f"Downloaded {full_filename} and extracted RINEX from zip")
+                # Get the size of the extracted RINEX file
+                if os.path.exists(m.daily_dnld_path):
+                    rinex_size = os.path.getsize(m.daily_dnld_path)
+                    logger.info(f"Downloaded {full_filename} ({format_filesize(tmpsize)}) and extracted RINEX ({format_filesize(rinex_size)})")
+                else:
+                    logger.info(f"Downloaded {full_filename} ({format_filesize(tmpsize)}) and extracted RINEX")
             else:  # MOSAIC
                 logger.info(f"Downloaded {full_filename} (RINEX file)")
             s = m.daily_dnld_path.split('/')

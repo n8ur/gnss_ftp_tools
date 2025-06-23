@@ -93,6 +93,40 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
                         lines[i] = f'{pgm}{run_by}{date_str}PGM / RUN BY / DATE\n'
                     break
             
+        # General fix for any header line that is too long
+        for i, line in enumerate(lines):
+            # Skip lines that are already fixed or are data lines
+            if line.strip() and line[0].isdigit():
+                continue
+                
+            # Check if line is too long (should be exactly 80 characters)
+            if len(line.rstrip('\r\n')) > 80:
+                logger.warning(f"Fixing over-long header line: {line.strip()}")
+                
+                # Find the comment field (last 20 characters before newline)
+                # RINEX comment fields are right-justified in the last 20 characters
+                line_content = line.rstrip('\r\n')
+                if len(line_content) >= 20:
+                    # Extract the comment field (last 20 characters)
+                    comment_field = line_content[-20:]
+                    # Extract the data portion (everything except the last 20 characters)
+                    data_portion = line_content[:-20]
+                    
+                    # Find the last non-space character in the data portion
+                    last_non_space = len(data_portion.rstrip())
+                    
+                    # Ensure the data portion doesn't exceed 60 characters
+                    if last_non_space > 60:
+                        # Truncate to 60 characters
+                        data_portion = data_portion[:60]
+                        last_non_space = 60
+                    
+                    # Pad the data portion to exactly 60 characters
+                    data_portion = data_portion[:last_non_space].ljust(60)
+                    
+                    # Reconstruct the line with proper 80-character length
+                    lines[i] = data_portion + comment_field + '\n'
+        
         # Write fixed content to a temporary file
         temp_file = infile + '.fixed'
         with open(temp_file, 'w') as f:
