@@ -25,32 +25,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def validate_and_fix_rinex_header_line(line_content):
-    """Validate and fix a RINEX header line according to basic structural requirements.
-    
-    Args:
-        line_content (str): The header line content (without newline)
-        
-    Returns:
-        str: The corrected line content, or original if no fixes needed
-    """
-    # Only fix comment fields with leading spaces (the specific NetR8 issue)
-    if len(line_content) >= 20:
-        comment_field = line_content[-20:]
-        data_portion = line_content[:-20]
-        
-        # Fix comment field if it has leading spaces
-        if comment_field.startswith(' '):
-            comment_content = comment_field.strip()
-            if comment_content:
-                comment_field = comment_content.ljust(20)
-                return f"{data_portion}{comment_field}"
-    
-    return line_content
-
 def edit_rinex_header(infile, m, station, organization, user, antenna_type, 
                      station_cartesian=None, station_llh=None, 
-                     marker_num=None, antenna_number=None):
+                     marker_num=None, antenna_number=None, receiver_type_str=None):
     """Edit RINEX file header with station metadata.
     
     Args:
@@ -64,6 +41,7 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
         station_llh (str, optional): Station location in WGS84 llh coordinates [lat,lon,height] in decimal degrees and meters
         marker_num (str, optional): Monument/marker number
         antenna_number (str, optional): Antenna number
+        receiver_type_str (str, optional): Type of receiver as a string (e.g., 'NetR8')
         
     Returns:
         bool: True if successful, False otherwise
@@ -82,70 +60,52 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
     try:
         with open(infile, 'r') as f:
             lines = f.readlines()
-            
-        # Check if file has END OF HEADER marker
-        if 'END OF HEADER' not in ''.join(lines):
-            logger.debug("No END OF HEADER marker found, adding one...")
-            # Find the first data line (starts with a number)
-            data_start = 0
-            for i, line in enumerate(lines):
-                if line.strip() and line[0].isdigit():
-                    data_start = i
-                    break
-            
-            # Insert END OF HEADER before data
-            lines.insert(data_start, '                                                            END OF HEADER\n')
-            
-        # Fix malformed PGM/RUN BY/DATE line if needed
-        for i, line in enumerate(lines):
-            if 'PGM / RUN BY / DATE' in line:
-                # Check if line is malformed (not properly formatted with 20-char fields)
-                if len(line.strip()) > 60:  # Should be 60 chars + newline
-                    # Extract components
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        pgm = parts[0][:20].ljust(20)  # First part is PGM
-                        run_by = parts[1][:20].ljust(20)  # Second part is RUN BY
-                        # Date should be in format YYYYMMDD HHMMSS UTC
-                        date_str = ' '.join(parts[2:])
-                        if len(date_str) > 20:
-                            date_str = date_str[:20]
-                        date_str = date_str.ljust(20)
-                        
-                        # Replace the line with properly formatted version
-                        lines[i] = f'{pgm}{run_by}{date_str}PGM / RUN BY / DATE\n'
-                    break
-            
-        # Comprehensive RINEX header validation and correction
-        for i, line in enumerate(lines):
-            # Skip data lines (lines starting with numbers)
-            if line.strip() and line[0].isdigit():
-                continue
-                
-            # Skip empty lines
-            if not line.strip():
-                continue
-                
-            # Get line content without newline
-            line_content = line.rstrip('\r\n')
-            
-            # Validate and fix based on header type
-            fixed_line = validate_and_fix_rinex_header_line(line_content)
-            if fixed_line != line_content:
-                # Only report if there's a meaningful change (not just whitespace differences)
-                if fixed_line.strip() != line_content.strip():
-                    logger.debug(f"Fixed malformed header line: {line_content.strip()}")
-                    logger.debug(f"Corrected to: {fixed_line.strip()}")
-                    lines[i] = fixed_line + '\n'
-                elif len(fixed_line) != len(line_content):
-                    # Report length changes even if content is the same
-                    logger.debug(f"Fixed header line length: {len(line_content)} -> {len(fixed_line)} chars")
-                    lines[i] = fixed_line + '\n'
-            
-            # Stop processing after END OF HEADER
-            if 'END OF HEADER' in line:
-                break
         
+        # Find the END OF HEADER line number
+        end_header_line = None
+        for i, line in enumerate(lines):
+            if 'END OF HEADER' in line:
+                end_header_line = i
+                break
+        # Fix header lines if needed
+        for i, line in enumerate(lines):
+            # Stop processing at end_header_line
+            if end_header_line is not None and i > end_header_line:
+                break
+            
+            # Apply receiver-specific fixes
+            if receiver_type_str:
+                # Fix NetR8 malformed REC # / TYPE / VERS line
+                if receiver_type_str == "NetR8" and "REC # / TYPE / VERS" in line:
+                    # Find position of "REC # / TYPE / VERS" in the line
+                    rec_type_vers_pos = line.find("REC # / TYPE / VERS")
+                    # If found and it's not at position 60, fix the formatting
+                    if rec_type_vers_pos != -1 and rec_type_vers_pos != 60:
+                        # Extract the data portion (first 60 characters)
+                        data_portion = line[:60]
+                        # Add "REC # / TYPE / VERS" starting at position 60 (column 61)
+                        fixed_line = data_portion + "REC # / TYPE / VERS\n"
+                        lines[i] = fixed_line
+
+                # Fix NetR9 malformed PGM / RUN BY / DATE line
+                elif receiver_type_str == "NetR9" and 'PGM / RUN BY / DATE' in line:
+                    # Check if line is malformed (not properly formatted with 20-char fields)
+                    if len(line.strip()) > 60:  # Should be 60 chars + newline
+                        # Extract components
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            pgm = parts[0][:20].ljust(20)  # First part is PGM
+                            run_by = parts[1][:20].ljust(20)  # Second part is RUN BY
+                            # Date should be in format YYYYMMDD HHMMSS UTC
+                            date_str = ' '.join(parts[2:])
+                            if len(date_str) > 20:
+                                date_str = date_str[:20]
+                            date_str = date_str.ljust(20)
+                            
+                            # Replace the line with properly formatted version
+                            lines[i] = f'{pgm}{run_by}{date_str}PGM / RUN BY / DATE\n'
+                        break
+
         # Write fixed content to a temporary file
         temp_file = infile + '.fixed'
         with open(temp_file, 'w') as f:

@@ -98,6 +98,8 @@ class ReceiverType(Enum):
 def parse_directory_listing(ftp, path):
     """Helper function to get and parse directory listing"""
     try:
+        # Save current directory
+        current_dir = ftp.pwd()
         ftp.cwd(path)
         dir_contents = []
         ftp.retrlines("LIST", lambda x: dir_contents.append(x))
@@ -108,6 +110,9 @@ def parse_directory_listing(ftp, path):
             if len(parts) >= 9 and parts[0].startswith("d"):
                 dirname = " ".join(parts[8:])
                 dirs.append(dirname)
+        
+        # Restore original directory
+        ftp.cwd(current_dir)
         return dirs
     except Exception as e:
         logger.error(f"Error listing directory {path}: {e}")
@@ -153,7 +158,21 @@ def extract_date_from_filename(filename, receiver_type):
                 doy = int(match.group(1))
                 year = 2000 + int(match.group(2))
                 return year, doy
-        else:
+        elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
+            # NetR8/NetR9 format: netr9-1___202506160000A.RINEX.2.11.zip -> year=2025, doy=157
+            # Look for 8 digits (YYYYMMDD) followed by 4 digits and A
+            match = re.search(r'(\d{8})\d{4}A\.RINEX\.2\.11\.zip$', filename)
+            if match:
+                date_str = match.group(1)
+                year = int(date_str[:4])
+                month = int(date_str[4:6])
+                day = int(date_str[6:8])
+                # Validate month and day
+                if 1 <= month <= 12 and 1 <= day <= 31:
+                    date = dt.datetime(year, month, day)
+                    doy = date.timetuple().tm_yday
+                    return year, doy
+        else:  # NetRS
             # NetR8/NetR9/NetRS format: YYYYMMDD in filename
             # For NetRS, the format is like netrs-1202506060000a.T00
             # The date portion is at the end: YYYYMMDDHHMMa.T00
@@ -730,8 +749,8 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
                     full_path = dir_info
 
                 try:
-                    # For NetR9, we need to be in root directory first
-                    if receiver_type == ReceiverType.NETR9:
+                    # For NetR8 and NetR9, we need to be in root directory first
+                    if receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
                         ftp.cwd("/")
                     ftp.cwd(full_path)
                     logger.info(f"Processing directory: {full_path}")
@@ -740,8 +759,16 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
                     continue
 
                 # Get list of files in current directory
+                dir_contents = []
+                ftp.retrlines("LIST", lambda x: dir_contents.append(x))
+                
                 remote_files = []
-                ftp.retrlines("LIST", lambda x: remote_files.append(x.split()[-1]))
+                for line in dir_contents:
+                    # Parse the line to extract just the filename at the end
+                    parts = line.split()
+                    if len(parts) >= 9:  # Standard Unix-like listing format
+                        filename = " ".join(parts[8:])  # Filename is everything after the date/time
+                        remote_files.append(filename)
 
                 # Filter for target files based on receiver type
                 target_files = get_target_files(remote_files, receiver_type)
@@ -770,7 +797,9 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
 
                         # Download the file
                         try:
+                            logger.info(f"Starting download of {remote_file}...")
                             response = ftp.retrbinary("RETR " + remote_file, dnld_file.write, 1024)
+                            dnld_file.flush()  # Ensure all data is written to disk
                         except ftp_errors as e:
                             logger.error(f"Couldn't download {remote_file}: {e}")
                             os.remove(dnld_file.name)
@@ -791,12 +820,16 @@ def download_all_new_files(fqdn, measurement_path, station, args, measurement_cl
 
                         # Process the downloaded file
                         if process_downloaded_file(dnld_file, receiver_type, station, args, m):
+                            # Get file sizes for logging
+                            zip_size = os.path.getsize(dnld_file.name)
+                            rinex_size = os.path.getsize(m.daily_dnld_path) if os.path.exists(m.daily_dnld_path) else 0
+                            
                             if receiver_type == ReceiverType.NETRS:
-                                logger.info(f"Downloaded {remote_file} and converted to RINEX")
+                                logger.info(f"Downloaded {remote_file} ({format_filesize(zip_size)}) and converted to RINEX ({format_filesize(rinex_size)})")
                             elif receiver_type in [ReceiverType.NETR8, ReceiverType.NETR9]:
-                                logger.info(f"Downloaded {remote_file} and extracted RINEX from zip")
+                                logger.info(f"Downloaded {remote_file} ({format_filesize(zip_size)}) and extracted RINEX from zip ({format_filesize(rinex_size)})")
                             else:  # MOSAIC
-                                logger.info(f"Downloaded {remote_file} (RINEX file)")
+                                logger.info(f"Downloaded {remote_file} ({format_filesize(zip_size)}) (RINEX file)")
                         else:
                             logger.error(f"Downloaded {remote_file} but processing failed")
 
@@ -843,7 +876,8 @@ def process_downloaded_file(
                     args.station_cartesian,
                     args.station_llh,
                     args.marker_num,
-                    args.antenna_number
+                    args.antenna_number,
+                    receiver_type.value
                 ):
                     if os.path.exists(m.daily_dnld_path):
                         size = os.path.getsize(m.daily_dnld_path)
@@ -893,7 +927,8 @@ def process_downloaded_file(
                             args.station_cartesian,
                             args.station_llh,
                             args.marker_num,
-                            args.antenna_number
+                            args.antenna_number,
+                            receiver_type.value
                         )
                     else:
                         logger.error("Extracted file not found")
@@ -925,7 +960,8 @@ def process_downloaded_file(
                         args.station_cartesian,
                         args.station_llh,
                         args.marker_num,
-                        args.antenna_number
+                        args.antenna_number,
+                        receiver_type.value
                     )
                 else:
                     logger.error("Failed to copy Mosaic RINEX observation file")

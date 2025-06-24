@@ -364,7 +364,7 @@ def zip_processed_files(measurement_path):
     except Exception as e:
         print(f"Error creating zip archive: {str(e)}")
 
-def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sftp_user=None, sftp_pass=None, today=False, all_new=False):
+def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sftp_user=None, sftp_pass=None, today=False, all_new=False, args=None):
     logger.debug("Starting get_netrs_ftp.py")    # Changed to debug
     os.umask(0o002)        # o-w
     
@@ -495,5 +495,5 @@ if __name__ == '__main__':
     
     get_netrs_ftp(args.measurement_path, \
         args.fqdn, args.station, args.year, args.day_of_year,
-        args.sftp_host, args.sftp_user, args.sftp_pass, args.today, args.all_new)
+        args.sftp_host, args.sftp_user, args.sftp_pass, args.today, args.all_new, args)
     sys.exit()
