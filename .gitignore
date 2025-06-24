@@ -2,6 +2,7 @@ ftp_test.sh
 create_symlinks.sh
 make_install.sh
 install/
+sample/
 download/
 processed/
 *.orig

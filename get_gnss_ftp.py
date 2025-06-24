@@ -397,7 +397,7 @@ def get_netrs_ftp(measurement_path, fqdn, station, year, doy, sftp_host=None, sf
     # Create TECMeasurementFiles object with the provided year and doy
     m = TECMeasurementFiles(measurement_path, year, doy, today, station)
 
-    logger.info(f"Year: {m.year_num}, DoY: {m.doy_num}, GPS week: {m.gps_week_str}, GPS DoW: {m.gps_dow_str}")
+    logger.info(f"Processing day {m.doy_num} of {m.year_num}, day {m.gps_dow_str} of GPS week: {m.gps_week_str}")
     
     if today:
         logger.info("Getting today's file (may be partial)")
