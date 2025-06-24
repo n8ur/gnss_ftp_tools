@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 ############################################################
-# convert_trimble.py v.20250622.1
+# convert_trimble.py v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Simple program to convert Trimble T00/T02/T04 files to

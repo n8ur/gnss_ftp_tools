@@ -1,7 +1,7 @@
 #!/usr/bin/env -S python3 -u
 
 #################################################
-# gnss_file_tools.py v.20250622.1
+# gnss_file_tools.py v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # This program is free software; you can redistribute it and/or modify

@@ -1,7 +1,7 @@
 #! /usr/bin/env -S python3 -u
 
 ############################################################
-# get_gnss_ftp.py v.20250622.1
+# get_gnss_ftp.py v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Program to pull data files from Trimble or Sepentrio receiver, 

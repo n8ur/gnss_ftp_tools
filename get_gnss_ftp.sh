@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ############################################################
-# get_gnss_ftp.sh v.20250622.1
+# get_gnss_ftp.sh v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Shell script wrapper for get_gnss_ftp.py to pull data files
@@ -18,7 +18,7 @@
 # GNU General Public License for more details.
 
 /usr/local/bin/get_gnss_ftp.py \
-    -m ./ -f netr9-1-admin.febo.com \
+    -m /data -f  my.ip.add.ress \
     --station hs00 \
     --organization "HamSci TEC Project" \
     --user "John Ackermann N8UR" \

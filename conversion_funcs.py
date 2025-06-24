@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 ############################################################
-# conversion_funcs.py v.20250622.1
+# conversion_funcs.py v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Functions for converting GNSS receiver files to RINEX format
@@ -25,65 +25,27 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def fix_netr8_rec_line(line_content):
-    """Fix NetR8 REC # / TYPE / VERS line - remove leading space before label."""
-    label = 'REC # / TYPE / VERS'
-    if label in line_content:
-        label_field = line_content[60:80]
-        logger.debug(f"NetR8 fix: label_field = {repr(label_field)}")
-        if label_field.startswith(' ') and label in label_field:
-            logger.debug(f"NetR8 fix: Found leading space, fixing line")
-            data_portion = line_content[:60]
-            fixed_line = f"{data_portion}{label}"
-            fixed_line = fixed_line.ljust(80)
-            logger.debug(f"NetR8 fix: Original = {repr(line_content)}")
-            logger.debug(f"NetR8 fix: Fixed = {repr(fixed_line)}")
-            return fixed_line
-        else:
-            logger.debug(f"NetR8 fix: No leading space found or label not in field")
-    else:
-        logger.debug(f"NetR8 fix: Label not found")
-    return line_content
-
-def fix_netr9_pgm_line(line_content):
-    """Fix NetR9 PGM / RUN BY / DATE line - move label to column 61."""
-    label = 'PGM / RUN BY / DATE'
-    if label in line_content:
-        # Find the position of the label
-        label_pos = line_content.find(label)
-        # Take everything before the label as data portion
-        data_portion = line_content[:label_pos].rstrip()
-        # Pad data portion to exactly 60 characters
-        data_portion = data_portion.ljust(60)
-        # Append label starting at column 61 and trim to 80 characters
-        fixed_line = f"{data_portion}{label}"
-        if len(fixed_line) > 80:
-            fixed_line = fixed_line[:80]
-        return fixed_line
-    return line_content
-
 def validate_and_fix_rinex_header_line(line_content):
-    """Fix: For 'REC # / TYPE / VERS', ensure label starts at column 61 (no leading space), left-justified. For 'PGM / RUN BY / DATE', move label to column 61, remove any duplicate, and keep line <= 80 chars."""
-    logger.debug(f"validate_and_fix_rinex_header_line called with: {repr(line_content)}")
+    """Validate and fix a RINEX header line according to basic structural requirements.
     
-    # Apply NetR8 fix first
-    fixed_line = fix_netr8_rec_line(line_content)
-    if fixed_line != line_content:
-        logger.debug(f"NetR8 fix applied: {repr(fixed_line)}")
-        return fixed_line
+    Args:
+        line_content (str): The header line content (without newline)
+        
+    Returns:
+        str: The corrected line content, or original if no fixes needed
+    """
+    # Only fix comment fields with leading spaces (the specific NetR8 issue)
+    if len(line_content) >= 20:
+        comment_field = line_content[-20:]
+        data_portion = line_content[:-20]
+        
+        # Fix comment field if it has leading spaces
+        if comment_field.startswith(' '):
+            comment_content = comment_field.strip()
+            if comment_content:
+                comment_field = comment_content.ljust(20)
+                return f"{data_portion}{comment_field}"
     
-    # Apply NetR9 fix
-    fixed_line = fix_netr9_pgm_line(line_content)
-    if fixed_line != line_content:
-        logger.debug(f"NetR9 fix applied: {repr(fixed_line)}")
-        return fixed_line
-    
-    # Truncate lines longer than 80 characters
-    if len(line_content) > 80:
-        logger.debug(f"Truncating line longer than 80 characters")
-        return line_content[:80]
-    
-    logger.debug(f"No fixes applied, returning original")
     return line_content
 
 def edit_rinex_header(infile, m, station, organization, user, antenna_type, 
@@ -123,7 +85,7 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
             
         # Check if file has END OF HEADER marker
         if 'END OF HEADER' not in ''.join(lines):
-            logger.warning("No END OF HEADER marker found, adding one...")
+            logger.debug("No END OF HEADER marker found, adding one...")
             # Find the first data line (starts with a number)
             data_start = 0
             for i, line in enumerate(lines):
@@ -153,8 +115,8 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
                         # Replace the line with properly formatted version
                         lines[i] = f'{pgm}{run_by}{date_str}PGM / RUN BY / DATE\n'
                     break
-        
-        # Apply minimal header fixes only where needed
+            
+        # Comprehensive RINEX header validation and correction
         for i, line in enumerate(lines):
             # Skip data lines (lines starting with numbers)
             if line.strip() and line[0].isdigit():
@@ -167,23 +129,25 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
             # Get line content without newline
             line_content = line.rstrip('\r\n')
             
+            # Validate and fix based on header type
+            fixed_line = validate_and_fix_rinex_header_line(line_content)
+            if fixed_line != line_content:
+                # Only report if there's a meaningful change (not just whitespace differences)
+                if fixed_line.strip() != line_content.strip():
+                    logger.debug(f"Fixed malformed header line: {line_content.strip()}")
+                    logger.debug(f"Corrected to: {fixed_line.strip()}")
+                    lines[i] = fixed_line + '\n'
+                elif len(fixed_line) != len(line_content):
+                    # Report length changes even if content is the same
+                    logger.debug(f"Fixed header line length: {len(line_content)} -> {len(fixed_line)} chars")
+                    lines[i] = fixed_line + '\n'
+            
             # Stop processing after END OF HEADER
             if 'END OF HEADER' in line:
                 break
-                
-            # Apply minimal fixes only for obviously malformed lines
-            logger.debug(f"Processing header line {i+1}: {repr(line_content)}")
-            fixed_line = validate_and_fix_rinex_header_line(line_content)
-            if fixed_line != line_content:
-                # Apply the fix if the lines are different
-                logger.warning(f"Fixed malformed header line: {line_content.strip()}")
-                logger.warning(f"Corrected to: {fixed_line.strip()}")
-                lines[i] = fixed_line + '\n'
-            else:
-                logger.debug(f"No fix needed for line {i+1}")
         
         # Write fixed content to a temporary file
-        temp_file = tempfile.mktemp(suffix='.fixed')
+        temp_file = infile + '.fixed'
         with open(temp_file, 'w') as f:
             f.writelines(lines)
         
@@ -290,9 +254,9 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
             return False
         
         # Clean up temporary files
-        if temp_file and temp_file != infile:
+        if infile.endswith('.fixed'):
             try:
-                os.remove(temp_file)
+                os.remove(infile)
             except:
                 pass
                 
@@ -301,9 +265,9 @@ def edit_rinex_header(infile, m, station, organization, user, antenna_type,
     except Exception as e:
         logger.error(f"Couldn't run teqc to edit RINEX header: {e}")
         # Clean up temporary files
-        if temp_file and temp_file != infile:
+        if infile.endswith('.fixed'):
             try:
-                os.remove(temp_file)
+                os.remove(infile)
             except:
                 pass
         return False

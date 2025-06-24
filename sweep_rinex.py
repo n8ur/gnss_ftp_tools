@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 ############################################################
-# sweep_rinex.py v.20250622.1
+# sweep_rinex.py v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Program to sweep RINEX files from user upload directories

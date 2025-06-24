@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 ############################################################
-# ftp_funcs.py v.20250622.1
+# ftp_funcs.py v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Functions for FTP operations with GNSS receivers including

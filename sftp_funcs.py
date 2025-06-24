@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 ############################################################
-# sftp_funcs.py v.20250622.1
+# sftp_funcs.py v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Functions for SFTP operations including host key management

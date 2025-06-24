@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ############################################################
-# make_sftp_user.sh v.20250622.1
+# make_sftp_user.sh v.20250624.1
 # copyright 2025 John Ackermann N8UR jra@febo.com
 #
 # Script to create SFTP users with chroot jail configuration
