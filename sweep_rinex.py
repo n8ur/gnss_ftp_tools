@@ -59,10 +59,10 @@ def get_doy_from_filename(filename):
     or stationDDD0.YYo, including compressed files.
     """
     try:
-        # MODIFIED: This regex is now more flexible.
-        # 1. It allows for hyphens and underscores in the station name.
-        # 2. It looks for the pattern anywhere in the filename, ignoring
-        #    final extensions like .gz or .Z.
+        # Look for the pattern: station name followed by DOY0.YYo
+        # This handles the format: hsXXDOY0.YYo (e.g., hs000010.25o)
+        # It looks for the pattern anywhere in the filename, ignoring
+        # final extensions like .gz or .Z.
         match = re.search(r"[a-zA-Z0-9_-]+(\d{3})0\.(\d{2})o", filename)
         if match:
             doy = int(match.group(1))
@@ -71,7 +71,7 @@ def get_doy_from_filename(filename):
             year = 2000 + year_yy if year_yy < 80 else 1900 + year_yy
             return year, doy
 
-        # MODIFIED: Use regex for YYYYMMDD to find it anywhere in the name.
+        # Use regex for YYYYMMDD to find it anywhere in the name.
         # This pattern is checked before YYYYDDD to avoid ambiguity.
         match = re.search(r"(\d{4})(\d{2})(\d{2})", filename)
         if match:
@@ -79,7 +79,7 @@ def get_doy_from_filename(filename):
             date = datetime.datetime.strptime(date_str, "%Y%m%d")
             return date.year, date.timetuple().tm_yday
 
-        # MODIFIED: Use regex for YYYYDDD to find it anywhere in the name.
+        # Use regex for YYYYDDD to find it anywhere in the name.
         match = re.search(r"(\d{4})(\d{3})", filename)
         if match:
             year = int(match.group(1))

@@ -140,8 +140,8 @@ class TECMeasurementFiles(MeasurementFilesBase):
             self.daily_dnld_file = self.m_week_name + "_" + \
                 self.today_gps_dow_str + ".obs.partial"
         else:
-            # New file naming format: <station>_<doy>0.yyo
-            self.daily_dnld_file = self.m_name.lower() + "_" + str(self.doy_num).zfill(3) + "0." + \
+            # New file naming format: hsXXDOY0.YYo (no underscore)
+            self.daily_dnld_file = self.m_name.lower() + str(self.doy_num).zfill(3) + "0." + \
                 str(self.year_num)[-2:] + "o"
             
         self.daily_dnld_dir = self.dnld_base  # Changed to use base directory
